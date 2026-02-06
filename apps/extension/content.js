@@ -93,6 +93,7 @@ const DEFAULT_SETTINGS = {
   agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
+  backendUrl: "http://localhost:8787/resolve",
   visualPrefs: DEFAULT_VISUAL_SETTINGS,
 };
 
@@ -492,7 +493,6 @@ const initVisualA11yFeatures = async () => {
   A11Y_STATE.settings.visualPrefs = prefs;
   applyVisualPrefs(prefs);
   await createVisualPanel();
-  backendUrl: "http://localhost:8787/resolve",
 };
 
 const DANGEROUS_KEYWORDS = ["delete", "remove", "pay", "submit", "purchase"];
