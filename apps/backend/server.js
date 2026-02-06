@@ -107,6 +107,17 @@ For destructive actions (submit, pay, purchase, delete), set needsConfirmation=t
 Use pageKeywords to choose better target labels when possible.
 `;
 
+const ANSWER_SYSTEM_PROMPT = `
+You answer user questions using only the provided page context and text.
+If the answer is not present, say: "I couldn't find that on this page."
+Return JSON only, no markdown, using this schema:
+{
+  "answer": string,
+  "confidence": number // 0..1
+}
+Keep answers concise (1-4 sentences).
+`;
+
 const extractJson = (text) => {
   if (!text) return null;
   const first = text.indexOf("{");
@@ -161,6 +172,11 @@ const normalizeSchema = z.object({
   normalizedCommand: z.string(),
   confidence: z.number().min(0).max(1),
   reason: z.string(),
+});
+
+const answerSchema = z.object({
+  answer: z.string(),
+  confidence: z.number().min(0).max(1),
 });
 
 
@@ -453,6 +469,85 @@ ${text.slice(0, 6000)}
     });
     if (err?.response) {
       log("error", `[${req.requestId}] /summarize model error response`, {
+        status: err.response.status,
+        headers: err.response.headers,
+        body: err.response.data || err.response.body,
+      });
+    }
+    return res.status(500).json({ error: "Model call failed" });
+  }
+});
+
+app.post("/answer", async (req, res) => {
+  if (!ai) {
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
+  }
+  const { question, url, pageContext, text } = req.body || {};
+  if (!question || typeof question !== "string") {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  log("debug", `[${req.requestId}] /answer payload`, {
+    questionLength: question.length,
+    url: url || "",
+    pageContextKeys: pageContext ? Object.keys(pageContext) : [],
+    textLength: typeof text === "string" ? text.length : 0,
+  });
+
+  const prompt = `
+Question: ${question}
+URL: ${url || ""}
+PageContext: ${JSON.stringify(pageContext || {})}
+PageText: ${(text || "").slice(0, 6000)}
+Answer using only the provided context.
+`;
+
+  try {
+    log("debug", `[${req.requestId}] /answer model`, { model: MODEL });
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: ANSWER_SYSTEM_PROMPT.trim() },
+        { role: "user", content: prompt.trim() },
+      ],
+      response_format: { type: "json_object" },
+    });
+    log("debug", `[${req.requestId}] /answer openai response meta`, {
+      id: response?.id,
+      model: response?.model,
+      usage: response?.usage,
+    });
+    const parsed = extractJson(response.choices?.[0]?.message?.content || "");
+    if (!parsed) {
+      log("warn", `[${req.requestId}] /answer parse failed`);
+      return res.status(200).json({
+        answer: "I couldn't find that on this page.",
+        confidence: 0,
+      });
+    }
+    const validated = answerSchema.safeParse(parsed);
+    if (!validated.success) {
+      log("warn", `[${req.requestId}] /answer schema invalid`, validated.error?.issues);
+      return res.status(200).json({
+        answer: "I couldn't find that on this page.",
+        confidence: 0,
+      });
+    }
+    log("debug", `[${req.requestId}] /answer result`, {
+      confidence: validated.data.confidence,
+      answerLength: validated.data.answer.length,
+    });
+    return res.json(validated.data);
+  } catch (err) {
+    log("error", `[${req.requestId}] /answer model error`, {
+      message: err?.message || String(err),
+      name: err?.name,
+      code: err?.code,
+      status: err?.status,
+      type: err?.type,
+      stack: err?.stack,
+    });
+    if (err?.response) {
+      log("error", `[${req.requestId}] /answer model error response`, {
         status: err.response.status,
         headers: err.response.headers,
         body: err.response.data || err.response.body,
