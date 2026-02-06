@@ -1103,7 +1103,7 @@ const ensureUi = () => {
           <input class="cmd-input" type="text" placeholder="Type a command..." />
           <button class="mic-btn" title="Voice input">Mic</button>
         </div>
-        <div class="hint">Try: click checkout, scroll down, label mode on, open 3</div>
+        <div class="hint">Try: click checkout, scroll down, label mode on, open 3, what is this page about?</div>
         <div class="list"></div>
         <div class="agent-panel">
           <div class="agent-row">
@@ -1503,8 +1503,8 @@ const executeInput = async (raw) => {
   A11Y_STATE.metrics.steps += 1;
   const parsed = parseCommand(input);
   if (!parsed) {
-    toast("Command not recognized");
     debugLog("parse=none");
+    answerQuestion(input);
     return;
   }
   debugLog(`parse=${parsed.intent || "unknown"}`);
@@ -2902,6 +2902,48 @@ const summarizeWithAi = async (backendUrl, text) => {
   return backendFetchJson(summarizeUrl, { text });
 };
 
+const answerWithAi = async (backendUrl, payload) => {
+  const answerUrl = backendUrl.endsWith("/resolve")
+    ? backendUrl.replace(/\/resolve$/, "/answer")
+    : backendUrl.endsWith("/plan")
+    ? backendUrl.replace(/\/plan$/, "/answer")
+    : backendUrl.endsWith("/summarize")
+    ? backendUrl.replace(/\/summarize$/, "/answer")
+    : `${backendUrl.replace(/\/+$/, "")}/answer`;
+  return backendFetchJson(answerUrl, payload);
+};
+
+const answerQuestion = async (question) => {
+  const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (!backendUrl) {
+    toast("Set backend URL for answers");
+    debugLog("answer: backend url missing");
+    return;
+  }
+  if (!question) return;
+  if (!A11Y_STATE.pageContext) {
+    initPageContext();
+  }
+  const pageContext = A11Y_STATE.pageContext || buildPageContext();
+  const text = extractArticleText("ARTICLE_MAIN");
+  A11Y_STATE.listEl.innerHTML = `<div class="list-item">Answering...</div>`;
+  try {
+    debugLog(`answer: question="${question.slice(0, 180)}"`);
+    const response = await answerWithAi(backendUrl, {
+      question,
+      url: location.href,
+      pageContext,
+      text,
+    });
+    clearList();
+    renderAnswer(response);
+    if (response?.answer) speak(response.answer);
+  } catch (err) {
+    toast("Answer failed");
+    debugLog(`answer: error ${err?.message || err}`);
+  }
+};
+
 const renderSummary = (summary) => {
   if (!summary) return;
   const bullets = (summary.bullets || []).map((b) => `<li>${b}</li>`).join("");
@@ -2912,6 +2954,17 @@ const renderSummary = (summary) => {
     <div><strong>Overview</strong><div>${summary.overview || "—"}</div></div>
     <div style="margin-top:8px;"><strong>Key Points</strong><ul>${bullets}</ul></div>
     ${terms ? `<div style="margin-top:8px;"><strong>Key Terms</strong><ul>${terms}</ul></div>` : ""}
+  `;
+};
+
+const renderAnswer = (result) => {
+  if (!result || !A11Y_STATE.summaryEl) return;
+  const answer = result.answer || "I couldn't find that on this page.";
+  const confidence =
+    typeof result.confidence === "number" ? ` <span style="opacity:0.7">(conf ${Math.round(result.confidence * 100)}%)</span>` : "";
+  A11Y_STATE.summaryEl.style.display = "block";
+  A11Y_STATE.summaryEl.innerHTML = `
+    <div><strong>Answer</strong>${confidence}<div>${answer}</div></div>
   `;
 };
 
