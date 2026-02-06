@@ -15,6 +15,7 @@ const A11Y_STATE = {
   },
   settings: {
     voiceEnabled: true,
+    textToSpeechEnabled: true,
     agentModeEnabled: true,
     confirmDanger: true,
     demoMetrics: true,
@@ -59,6 +60,8 @@ const A11Y_STATE = {
   metricsEl: null,
   toastEl: null,
   summaryEl: null,
+  summaryContentEl: null,
+  summaryContinueBtn: null,
   debugEl: null,
   debugEnabled: true,
   pageContext: null,
@@ -73,6 +76,8 @@ const A11Y_STATE = {
   focusToggleBtn: null,
   paletteEl: null,
   dragHandleEl: null,
+  lastSummaryText: "",
+  ttsPaused: false,
   drag: {
     active: false,
     offsetX: 0,
@@ -97,6 +102,7 @@ const DEFAULT_VISUAL_SETTINGS = {
 
 const DEFAULT_SETTINGS = {
   voiceEnabled: true,
+  textToSpeechEnabled: true,
   agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
@@ -829,6 +835,19 @@ const initVisualA11yFeatures = async () => {
 
 const DANGEROUS_KEYWORDS = ["delete", "remove", "pay", "submit", "purchase"];
 const STOP_WORDS = ["stop", "cancel", "pause"];
+const STOP_PHRASES = ["stop reading", "pause reading", "stop speaking", "pause speaking"];
+const RESUME_PHRASES = [
+  "continue",
+  "continue reading",
+  "resume",
+  "resume reading",
+  "keep going",
+  "keep reading",
+  "go on",
+  "carry on",
+  "keep talking",
+  "keep speaking",
+];
 const OPTION_WORDS = {
   "first": 1,
   "first one": 1,
@@ -890,6 +909,9 @@ const COMMAND_HINTS = [
   "summarize the article",
   "explain the page",
   "explain the article",
+  "stop reading",
+  "continue reading",
+  "resume reading",
   "label mode on|off",
   "focus mode on|off",
   "open <number>",
@@ -937,8 +959,15 @@ const COMMON_COMMANDS = [
   "open 8",
   "open 9",
   "stop",
+  "stop reading",
+  "pause reading",
   "cancel",
   "pause",
+  "continue",
+  "continue reading",
+  "resume",
+  "resume reading",
+  "keep reading",
   "submit",
 ];
 
@@ -973,9 +1002,14 @@ const KEYWORD_TOKENS = [
   "into",
   "submit",
   "summary",
+  "read",
+  "reading",
   "stop",
   "cancel",
   "pause",
+  "continue",
+  "resume",
+  "keep",
   "number",
   "one",
   "two",
@@ -1296,6 +1330,21 @@ const ensureUi = () => {
       font-size: 12px;
       color: #e2e8f0;
     }
+    .summary-controls {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .summary-controls button {
+      border: 1px solid #475569;
+      background: #111827;
+      color: #e2e8f0;
+      padding: 4px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
     .summary ul {
       margin: 6px 0 0 16px;
       padding: 0;
@@ -1343,7 +1392,12 @@ const ensureUi = () => {
           <div class="agent-line agent-transcript">Transcript: —</div>
           <div class="agent-line agent-step">Step: —</div>
         </div>
-        <div class="summary"></div>
+        <div class="summary">
+          <div class="summary-content"></div>
+          <div class="summary-controls">
+            <button class="summary-continue" type="button">Continue</button>
+          </div>
+        </div>
         <div class="debug"></div>
         <div class="metrics"></div>
       </div>
@@ -1363,6 +1417,8 @@ const ensureUi = () => {
   A11Y_STATE.metricsEl = shadow.querySelector(".metrics");
   A11Y_STATE.toastEl = shadow.querySelector(".toast");
   A11Y_STATE.summaryEl = shadow.querySelector(".summary");
+  A11Y_STATE.summaryContentEl = shadow.querySelector(".summary-content");
+  A11Y_STATE.summaryContinueBtn = shadow.querySelector(".summary-continue");
   A11Y_STATE.debugEl = shadow.querySelector(".debug");
   A11Y_STATE.labelsEl = shadow.querySelector(".labels");
   A11Y_STATE.micBtn = shadow.querySelector(".mic-btn");
@@ -1382,6 +1438,19 @@ const ensureUi = () => {
   A11Y_STATE.focusToggleBtn.addEventListener("click", toggleFocusMode);
   A11Y_STATE.paletteEl.addEventListener("mousedown", startDrag);
   A11Y_STATE.closeBtn.addEventListener("click", hidePalette);
+  if (A11Y_STATE.summaryContinueBtn) {
+    A11Y_STATE.summaryContinueBtn.addEventListener("click", () => {
+      if (!A11Y_STATE.settings.textToSpeechEnabled) {
+        toast("Enable text to speech in settings");
+        return;
+      }
+      if (resumeSpeech()) {
+        resumeAgentIfPaused();
+        return;
+      }
+      toast("Nothing to resume");
+    });
+  }
   updateFocusToggleUi();
 };
 
@@ -1799,7 +1868,25 @@ const executeInput = async (raw) => {
     return;
   }
   if (parsed.intent === "STOP") {
+    const paused = pauseSpeech();
+    if (paused) {
+      toast("Reading paused.");
+      if (!A11Y_STATE.agent.enabled) return;
+    }
     interruptAgent();
+    return;
+  }
+  if (parsed.intent === "TTS_RESUME") {
+    if (!A11Y_STATE.settings.textToSpeechEnabled) {
+      toast("Enable text to speech in settings");
+      return;
+    }
+    if (resumeSpeech()) {
+      resumeAgentIfPaused();
+      toast("Reading resumed.");
+      return;
+    }
+    toast("Nothing to resume");
     return;
   }
   if (parsed.intent === "OPEN_NUMBER") {
@@ -1838,6 +1925,8 @@ const parseCommand = (input) => {
   if (text === "focus mode off") return { intent: "TOGGLE_FOCUS_MODE", enabled: false };
   const common = parseCommonCommand(text);
   if (common) return common;
+  if (STOP_PHRASES.includes(text)) return { intent: "STOP" };
+  if (RESUME_PHRASES.includes(text)) return { intent: "TTS_RESUME" };
   if (STOP_WORDS.includes(text)) return { intent: "STOP" };
   const openNumber = text.match(/^open\s+(\d+)$/);
   if (openNumber) return { intent: "OPEN_NUMBER", n: Number(openNumber[1]) };
@@ -1877,6 +1966,7 @@ const parseCommonCommand = (text) => {
   ) {
     return { intent: "SUMMARIZE" };
   }
+  if (RESUME_PHRASES.includes(text)) return { intent: "TTS_RESUME" };
   if (text === "go back" || text === "back") return { intent: "NAV_BACK" };
   if (text === "reload" || text === "refresh" || text === "refresh page") return { intent: "RELOAD" };
   if (text === "focus next") return { intent: "FOCUS_NEXT" };
@@ -2126,6 +2216,9 @@ const deriveCommandFromTokens = (tokens) => {
   const set = new Set(tokens);
 
   if (hasAny(set, ["stop", "cancel", "pause"])) return "stop";
+  if (hasAny(set, ["continue", "resume"]) && hasAny(set, ["read", "reading", "summary"])) return "continue reading";
+  if (hasAny(set, ["continue", "resume", "keep"]) && set.has("reading")) return "continue reading";
+  if (hasAny(set, ["continue", "resume", "keep"])) return "continue reading";
 
   if (set.has("scroll")) {
     if (set.has("up")) return "scroll up";
@@ -2192,6 +2285,10 @@ const matchCommonCommand = (utterance) => {
 const mapCommonSynonyms = (text) => {
   const norm = normalize(text);
   if (!norm) return null;
+  if (["stop reading", "pause reading", "stop speaking", "pause speaking"].includes(norm)) return "stop";
+  if (["continue", "continue reading", "resume", "resume reading", "keep reading", "keep going", "go on", "carry on"].includes(norm)) {
+    return "continue reading";
+  }
   if (["reload", "refresh", "refresh page"].includes(norm)) return "reload";
   if (["back", "go back", "go backward"].includes(norm)) return "go back";
   if (
@@ -2592,12 +2689,26 @@ const startAgentListening = () => {
     const state = A11Y_STATE.agent.state;
     const trimmed = transcript.toLowerCase().trim();
     if ((state === "EXECUTING" || state === "PAUSED") && containsStopWord(transcript)) {
+      if (pauseSpeech()) toast("Reading paused.");
       interruptAgent();
       return;
     }
     if (state === "LISTENING" && STOP_WORDS.includes(trimmed)) {
+      if (pauseSpeech()) toast("Reading paused.");
       interruptAgent();
       return;
+    }
+    if (RESUME_PHRASES.includes(trimmed)) {
+      if (!A11Y_STATE.settings.textToSpeechEnabled) {
+        toast("Enable text to speech in settings");
+        return;
+      }
+      if (resumeSpeech()) {
+        resumeAgentIfPaused();
+        toast("Reading resumed.");
+        return;
+      }
+      toast("Nothing to resume");
     }
     if (A11Y_STATE.agent.state !== "LISTENING") return;
     schedulePlanning(transcript);
@@ -2644,6 +2755,15 @@ const interruptAgent = () => {
   stopScrollLoop();
   toast("Stopped.");
   updateAgentUi();
+};
+
+const resumeAgentIfPaused = () => {
+  if (!A11Y_STATE.agent.enabled) return;
+  if (A11Y_STATE.agent.state === "PAUSED") {
+    A11Y_STATE.agent.interrupt = false;
+    A11Y_STATE.agent.state = "LISTENING";
+    updateAgentUi();
+  }
 };
 
 const schedulePlanning = (utterance) => {
@@ -3211,13 +3331,42 @@ const renderSummary = (summary) => {
   if (!summary) return;
   const bullets = (summary.bullets || []).map((b) => `<li>${b}</li>`).join("");
   const terms = (summary.keyTerms || []).map((t) => `<li>${t}</li>`).join("");
-  if (!A11Y_STATE.summaryEl) return;
+  if (!A11Y_STATE.summaryEl || !A11Y_STATE.summaryContentEl) return;
   A11Y_STATE.summaryEl.style.display = "block";
-  A11Y_STATE.summaryEl.innerHTML = `
+  A11Y_STATE.summaryContentEl.innerHTML = `
     <div><strong>Overview</strong><div>${summary.overview || "—"}</div></div>
     <div style="margin-top:8px;"><strong>Key Points</strong><ul>${bullets}</ul></div>
     ${terms ? `<div style="margin-top:8px;"><strong>Key Terms</strong><ul>${terms}</ul></div>` : ""}
   `;
+  A11Y_STATE.lastSummaryText = summary.overview || "";
+};
+
+const canUseSpeechSynthesis = () => "speechSynthesis" in window;
+
+const pauseSpeech = () => {
+  if (!canUseSpeechSynthesis()) return false;
+  const synth = window.speechSynthesis;
+  if (synth.paused) {
+    A11Y_STATE.ttsPaused = true;
+    return true;
+  }
+  if (synth.speaking || synth.pending) {
+    synth.pause();
+    A11Y_STATE.ttsPaused = true;
+    return true;
+  }
+  return false;
+};
+
+const resumeSpeech = () => {
+  if (!canUseSpeechSynthesis()) return false;
+  const synth = window.speechSynthesis;
+  if (synth.paused || A11Y_STATE.ttsPaused) {
+    synth.resume();
+    A11Y_STATE.ttsPaused = false;
+    return true;
+  }
+  return false;
 };
 
 const renderAnswer = (result) => {
@@ -3232,8 +3381,17 @@ const renderAnswer = (result) => {
 };
 
 const speak = (text) => {
-  if (!("speechSynthesis" in window)) return;
+  if (!A11Y_STATE.settings.textToSpeechEnabled) return;
+  if (!canUseSpeechSynthesis()) return;
+  if (!text) return;
   const utterance = new SpeechSynthesisUtterance(text);
+  A11Y_STATE.ttsPaused = false;
+  utterance.onend = () => {
+    A11Y_STATE.ttsPaused = false;
+  };
+  utterance.onerror = () => {
+    A11Y_STATE.ttsPaused = false;
+  };
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
 };
@@ -3260,7 +3418,7 @@ const startVoice = () => {
   const recognition = new Speech();
   recognition.lang = "en-US";
   recognition.interimResults = true;
-  recognition.continuous = false;
+  recognition.continuous = true;
   recognition.onresult = (event) => {
     const last = event.results[event.results.length - 1];
     const transcript = last[0].transcript.trim();
@@ -3344,14 +3502,18 @@ window.addEventListener("resize", scheduleFocusModeSync);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
-  if (!changes.visualPrefs) return;
-  const prefs = mergeVisualPrefs({
-    ...(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS),
-    enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
-  });
-  A11Y_STATE.settings.visualPrefs = prefs;
-  applyVisualPrefs(prefs);
-  updateVisualPanelFields(prefs);
+  if (changes.visualPrefs) {
+    const prefs = mergeVisualPrefs({
+      ...(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS),
+      enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
+    });
+    A11Y_STATE.settings.visualPrefs = prefs;
+    applyVisualPrefs(prefs);
+    updateVisualPanelFields(prefs);
+  }
+  if (changes.textToSpeechEnabled) {
+    A11Y_STATE.settings.textToSpeechEnabled = changes.textToSpeechEnabled.newValue;
+  }
 });
 
 const initPaletteOnLoad = () => {
