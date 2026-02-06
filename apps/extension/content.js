@@ -27,7 +27,8 @@ const A11Y_STATE = {
       focusRingColor: "#1a73e8",
       contrastHelper: "none",
     },
-    visualEffectsEnabled: true,
+    visualEffectsEnabled: false,
+    focusModeEnabled: false,
     backendUrl: "http://localhost:8787/resolve",
   },
   agent: {
@@ -69,6 +70,7 @@ const A11Y_STATE = {
   agentTranscriptEl: null,
   agentStepEl: null,
   agentStopBtn: null,
+  focusToggleBtn: null,
   paletteEl: null,
   dragHandleEl: null,
   drag: {
@@ -76,12 +78,15 @@ const A11Y_STATE = {
     offsetX: 0,
     offsetY: 0,
   },
+  focusMainEl: null,
+  focusSyncRaf: null,
 };
 
 const DEFAULT_VISUAL_SETTINGS = {
   enabled: false,
   bodyBackground: "#ffffff",
   bodyTextColor: "#111111",
+  contrastScale: 1,
   linksUnderline: true,
   keyboardFocus: true,
   focusRingEnabled: true,
@@ -97,13 +102,15 @@ const DEFAULT_SETTINGS = {
   demoMetrics: true,
   backendUrl: "http://localhost:8787/resolve",
   visualPrefs: DEFAULT_VISUAL_SETTINGS,
-  visualEffectsEnabled: true,
+  visualEffectsEnabled: false,
+  focusModeEnabled: false,
 };
 
 const VISUAL_PRESETS = {
   highContrastDark: {
     bodyBackground: "#000000",
     bodyTextColor: "#ffffff",
+    contrastScale: 1.2,
     linksUnderline: true,
     keyboardFocus: true,
     focusRingEnabled: true,
@@ -113,34 +120,17 @@ const VISUAL_PRESETS = {
   highContrastLight: {
     bodyBackground: "#fffbea",
     bodyTextColor: "#111111",
+    contrastScale: 1.15,
     linksUnderline: true,
     keyboardFocus: true,
     focusRingEnabled: true,
     focusRingColor: "#005fcc",
     contrastHelper: "soft",
   },
-  dyslexiaFriendly: {
-    bodyBackground: "#f7f4ea",
-    bodyTextColor: "#1a1a1a",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#0b6e4f",
-    contrastHelper: "strong",
-  },
-  sepiaReader: {
-    bodyBackground: "#f4ecd8",
-    bodyTextColor: "#2f2418",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#8b5a2b",
-    contrastHelper: "soft",
-    zoomPercent: 110,
-  },
   creamPaper: {
     bodyBackground: "#fff7de",
     bodyTextColor: "#222222",
+    contrastScale: 1.05,
     linksUnderline: true,
     keyboardFocus: true,
     focusRingEnabled: true,
@@ -148,39 +138,10 @@ const VISUAL_PRESETS = {
     contrastHelper: "soft",
     zoomPercent: 105,
   },
-  dimNightMode: {
-    bodyBackground: "#121212",
-    bodyTextColor: "#e6e6e6",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#7dd3fc",
-    contrastHelper: "soft",
-    zoomPercent: 105,
-  },
-  boldBlackOnYellow: {
-    bodyBackground: "#fff200",
-    bodyTextColor: "#000000",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#1d4ed8",
-    contrastHelper: "strong",
-    zoomPercent: 115,
-  },
-  boldYellowOnBlack: {
-    bodyBackground: "#000000",
-    bodyTextColor: "#ffeb3b",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#ffd54f",
-    contrastHelper: "strong",
-    zoomPercent: 115,
-  },
   blueYellowContrast: {
     bodyBackground: "#0a1f44",
     bodyTextColor: "#ffe066",
+    contrastScale: 1.2,
     linksUnderline: true,
     keyboardFocus: true,
     focusRingEnabled: true,
@@ -188,26 +149,23 @@ const VISUAL_PRESETS = {
     contrastHelper: "strong",
     zoomPercent: 110,
   },
-  softGrayReading: {
-    bodyBackground: "#eceff3",
-    bodyTextColor: "#1f2937",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#2563eb",
-    contrastHelper: "soft",
-    zoomPercent: 105,
-  },
 };
 
 const VISUAL_STYLE_ID = "a11y-autopilot-visual-style";
 const VISUAL_ROOT_ID = "a11y-autopilot-visual-root";
+const FOCUS_STYLE_ID = "a11y-autopilot-focus-style";
 
 const isHexColor = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim());
 
 const clampContrastHelper = (value) => {
   if (value === "soft" || value === "strong") return value;
   return "none";
+};
+
+const clampContrastScale = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(2, Math.max(0.8, Math.round(n * 100) / 100));
 };
 
 const clampZoomPercent = (value) => {
@@ -222,6 +180,7 @@ const mergeVisualPrefs = (prefs = {}) => ({
   enabled: prefs.enabled === true,
   bodyBackground: isHexColor(prefs.bodyBackground) ? prefs.bodyBackground.trim() : DEFAULT_VISUAL_SETTINGS.bodyBackground,
   bodyTextColor: isHexColor(prefs.bodyTextColor) ? prefs.bodyTextColor.trim() : DEFAULT_VISUAL_SETTINGS.bodyTextColor,
+  contrastScale: clampContrastScale(prefs.contrastScale),
   focusRingColor: isHexColor(prefs.focusRingColor) ? prefs.focusRingColor.trim() : DEFAULT_VISUAL_SETTINGS.focusRingColor,
   linksUnderline: prefs.linksUnderline !== false,
   keyboardFocus: prefs.keyboardFocus !== false,
@@ -243,6 +202,187 @@ const ensureVisualStyleTag = () => {
 const clearVisualEffects = () => {
   const styleEl = document.getElementById(VISUAL_STYLE_ID);
   if (styleEl) styleEl.remove();
+};
+
+const clearFocusMode = () => {
+  if (A11Y_STATE.focusSyncRaf) {
+    cancelAnimationFrame(A11Y_STATE.focusSyncRaf);
+    A11Y_STATE.focusSyncRaf = null;
+  }
+  A11Y_STATE.focusMainEl = null;
+  const styleEl = document.getElementById(FOCUS_STYLE_ID);
+  if (styleEl) styleEl.remove();
+  document.querySelectorAll("[data-a11y-focus-main],[data-a11y-focus-path]").forEach((el) => {
+    el.removeAttribute("data-a11y-focus-main");
+    el.removeAttribute("data-a11y-focus-path");
+  });
+};
+
+const ensureFocusStyleTag = () => {
+  let styleEl = document.getElementById(FOCUS_STYLE_ID);
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = FOCUS_STYLE_ID;
+    document.documentElement.appendChild(styleEl);
+  }
+  return styleEl;
+};
+
+const clearFocusMarkers = () => {
+  document.querySelectorAll("[data-a11y-focus-main],[data-a11y-focus-path]").forEach((el) => {
+    el.removeAttribute("data-a11y-focus-main");
+    el.removeAttribute("data-a11y-focus-path");
+  });
+};
+
+const getIntersectionArea = (rect) => {
+  const w = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+  const h = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+  return w * h;
+};
+
+const isValidFocusCandidate = (el) => {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.id === VISUAL_ROOT_ID || el.id === "a11y-autopilot-root") return false;
+  const rect = el.getBoundingClientRect();
+  if (rect.width < 280 || rect.height < 140) return false;
+  const textLen = (el.innerText || "").replace(/\s+/g, " ").trim().length;
+  return textLen >= 80;
+};
+
+const scoreFocusCandidate = (el) => {
+  const rect = el.getBoundingClientRect();
+  const area = Math.max(1, rect.width * rect.height);
+  const intersection = getIntersectionArea(rect);
+  if (intersection <= 0) return -1;
+
+  const visibleRatio = Math.min(1, intersection / area);
+  const textLen = (el.innerText || "").replace(/\s+/g, " ").trim().length;
+  const textScore = Math.min(1, textLen / 1400);
+  const centerY = rect.top + rect.height / 2;
+  const viewportCenterY = window.innerHeight / 2;
+  const centerScore = Math.max(0, 1 - Math.abs(centerY - viewportCenterY) / window.innerHeight);
+  const tag = el.tagName.toLowerCase();
+  const semanticScore = tag === "article" ? 0.35 : tag === "main" ? 0.3 : tag === "section" ? 0.2 : 0;
+  const areaScore = Math.min(1, Math.log10(area) / 6);
+
+  return visibleRatio * 3.8 + centerScore * 1.9 + textScore * 1.5 + areaScore * 0.8 + semanticScore;
+};
+
+const getBestFocusMain = () => {
+  const selectors = [
+    "article",
+    "main",
+    "[role='main']",
+    "[role='article']",
+    "main section",
+    "main article",
+    "section",
+    "#main",
+    "#content",
+    ".main",
+    ".content",
+    ".post",
+    ".article",
+    "[class*='content']",
+    "[class*='article']",
+    "[data-testid*='content']",
+    "[data-testid*='article']",
+    "[data-testid*='post']",
+  ];
+  const seen = new Set();
+  const candidates = Array.from(document.querySelectorAll(selectors.join(","))).filter((el) => {
+    if (seen.has(el)) return false;
+    seen.add(el);
+    return isValidFocusCandidate(el);
+  });
+  if (!candidates.length) {
+    const topLevel = Array.from(document.body.children).filter((el) => {
+      return isValidFocusCandidate(el);
+    });
+    if (!topLevel.length) return document.body;
+    candidates.push(...topLevel);
+  }
+  if (!candidates.length) return document.body;
+
+  let best = null;
+  let bestScore = -1;
+  let currentScore = -1;
+  for (const el of candidates) {
+    const score = scoreFocusCandidate(el);
+    if (el === A11Y_STATE.focusMainEl) currentScore = score;
+    if (score > bestScore) {
+      best = el;
+      bestScore = score;
+    }
+  }
+
+  if (A11Y_STATE.focusMainEl && currentScore > 0 && bestScore > 0 && currentScore >= bestScore * 0.85) {
+    return A11Y_STATE.focusMainEl;
+  }
+  return best || document.body;
+};
+
+const syncFocusModeToViewport = (force = false) => {
+  if (!A11Y_STATE.settings.focusModeEnabled) return;
+  const main = getBestFocusMain();
+  if (!main || main === document.body) return;
+  if (!force && main === A11Y_STATE.focusMainEl) return;
+
+  clearFocusMarkers();
+  main.setAttribute("data-a11y-focus-main", "1");
+  let parent = main.parentElement;
+  while (parent && parent !== document.body) {
+    parent.setAttribute("data-a11y-focus-path", "1");
+    parent = parent.parentElement;
+  }
+  A11Y_STATE.focusMainEl = main;
+};
+
+const scheduleFocusModeSync = () => {
+  if (!A11Y_STATE.settings.focusModeEnabled) return;
+  if (A11Y_STATE.focusSyncRaf) return;
+  A11Y_STATE.focusSyncRaf = requestAnimationFrame(() => {
+    A11Y_STATE.focusSyncRaf = null;
+    syncFocusModeToViewport();
+  });
+};
+
+const applyFocusMode = () => {
+  clearFocusMarkers();
+  A11Y_STATE.focusMainEl = null;
+
+  const styleEl = ensureFocusStyleTag();
+  styleEl.textContent = `
+    body > *:not([data-a11y-focus-main]):not([data-a11y-focus-path]):not(#${VISUAL_ROOT_ID}):not(#a11y-autopilot-root) {
+      opacity: 0.2 !important;
+      transition: opacity 140ms ease;
+      pointer-events: none !important;
+      user-select: none !important;
+    }
+    body > header,
+    body > nav,
+    body > aside,
+    body > footer,
+    body > [role="banner"],
+    body > [role="navigation"],
+    body > [role="complementary"] {
+      display: none !important;
+    }
+    [data-a11y-focus-main="1"] {
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      position: relative !important;
+      z-index: 2147483000 !important;
+      border-radius: 10px !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 12px 28px rgba(0, 0, 0, 0.28) !important;
+      background-clip: padding-box !important;
+    }
+    [data-a11y-focus-main="1"], [data-a11y-focus-main="1"] * {
+      pointer-events: auto !important;
+    }
+  `;
+  syncFocusModeToViewport(true);
 };
 
 const applyVisualPrefs = (rawPrefs) => {
@@ -289,8 +429,12 @@ const applyVisualPrefs = (rawPrefs) => {
     }
     body {
       zoom: ${prefs.zoomPercent}% !important;
-      color: ${prefs.bodyTextColor} !important;
+      filter: contrast(${prefs.contrastScale}) !important;
     }
+    body :where(*):not(img):not(video):not(canvas):not(svg):not(iframe) {
+      background-color: ${prefs.bodyBackground} !important;
+    }
+    body, body :where(*, *::before, *::after) { color: ${prefs.bodyTextColor} !important; }
     a { text-decoration: ${underline} !important; }
     ${focusCss}
     ${contrastCss}
@@ -303,7 +447,7 @@ const updateVisualPanelFields = (prefs) => {
   const root = getVisualRoot();
   if (!root?.shadowRoot) return;
   const panel = root.shadowRoot;
-  panel.getElementById("v-enabled").checked = prefs.enabled !== false;
+  panel.getElementById("v-enabled").checked = A11Y_STATE.settings.visualEffectsEnabled === true;
   panel.getElementById("v-body-bg").value = prefs.bodyBackground;
   panel.getElementById("v-text-color").value = prefs.bodyTextColor;
   panel.getElementById("v-focus-color").value = prefs.focusRingColor;
@@ -321,6 +465,7 @@ const readVisualPanelFields = () => {
   if (!panel) return mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
   return mergeVisualPrefs({
     enabled: panel.getElementById("v-enabled").checked,
+    contrastScale: A11Y_STATE.settings.visualPrefs?.contrastScale,
     bodyBackground: panel.getElementById("v-body-bg").value,
     bodyTextColor: panel.getElementById("v-text-color").value,
     focusRingColor: panel.getElementById("v-focus-color").value,
@@ -388,9 +533,53 @@ const createVisualPanel = async () => {
       .toggle {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        font-size: 12px;
+        gap: 8px;
         white-space: nowrap;
+      }
+      .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 58px;
+        height: 32px;
+      }
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .toggle-slider {
+        position: absolute;
+        inset: 0;
+        cursor: pointer;
+        border-radius: 999px;
+        background: #334155;
+        border: 1px solid #475569;
+        transition: background 0.2s ease, box-shadow 0.2s ease;
+      }
+      .toggle-slider:before {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 3px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+        transition: transform 0.2s ease;
+      }
+      .toggle-switch input:checked + .toggle-slider {
+        background: #22c55e;
+        border-color: #22c55e;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+      }
+      .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(26px);
+      }
+      .toggle-text {
+        font-size: 12px;
+        font-weight: 600;
+        color: #065f46;
       }
       .desc { font-size: 12px; margin: 0 0 10px; color: #374151; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -432,7 +621,13 @@ const createVisualPanel = async () => {
     <section class="panel" id="v-panel" aria-label="Visual accessibility settings" role="dialog">
       <div class="header">
         <h2 class="title">Visual Accessibility</h2>
-        <label class="toggle"><input id="v-enabled" type="checkbox" /> On</label>
+        <label class="toggle">
+          <span class="toggle-switch">
+            <input id="v-enabled" type="checkbox" />
+            <span class="toggle-slider"></span>
+          </span>
+          <span class="toggle-text">On</span>
+        </label>
       </div>
       <p class="desc">Choose contrast and focus settings for better readability across websites.</p>
 
@@ -474,14 +669,8 @@ const createVisualPanel = async () => {
       <div class="presets">
         <button id="v-preset-dark" type="button">High Contrast Dark</button>
         <button id="v-preset-light" type="button">High Contrast Light</button>
-        <button id="v-preset-dyslexia" type="button">Readability Boost</button>
-        <button id="v-preset-sepia" type="button">Sepia Reader</button>
         <button id="v-preset-cream" type="button">Cream Paper</button>
-        <button id="v-preset-dim-night" type="button">Dim Night Mode</button>
-        <button id="v-preset-black-yellow" type="button">Bold Black on Yellow</button>
-        <button id="v-preset-yellow-black" type="button">Bold Yellow on Black</button>
         <button id="v-preset-blue-yellow" type="button">Blue/Yellow Contrast</button>
-        <button id="v-preset-soft-gray" type="button">Soft Gray Reading</button>
       </div>
 
       <div class="actions">
@@ -511,7 +700,7 @@ const createVisualPanel = async () => {
       const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
       const prefs = mergeVisualPrefs({
         ...stored.visualPrefs,
-        enabled: A11Y_STATE.settings.visualPrefs?.enabled === true,
+        enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
       });
       updateVisualPanelFields(prefs);
       applyVisualPrefs(prefs);
@@ -535,6 +724,7 @@ const createVisualPanel = async () => {
   shadow.getElementById("v-reset").addEventListener("click", async () => {
     const current = readVisualPanelFields();
     const prefs = mergeVisualPrefs({ ...DEFAULT_VISUAL_SETTINGS, enabled: current.enabled });
+    A11Y_STATE.settings.visualEffectsEnabled = prefs.enabled === true;
     updateVisualPanelFields(prefs);
     await saveVisualPrefs(prefs);
     showStatus("Reset to default");
@@ -550,14 +740,8 @@ const createVisualPanel = async () => {
 
   shadow.getElementById("v-preset-dark").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastDark));
   shadow.getElementById("v-preset-light").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastLight));
-  shadow.getElementById("v-preset-dyslexia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dyslexiaFriendly));
-  shadow.getElementById("v-preset-sepia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.sepiaReader));
   shadow.getElementById("v-preset-cream").addEventListener("click", () => applyPreset(VISUAL_PRESETS.creamPaper));
-  shadow.getElementById("v-preset-dim-night").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dimNightMode));
-  shadow.getElementById("v-preset-black-yellow").addEventListener("click", () => applyPreset(VISUAL_PRESETS.boldBlackOnYellow));
-  shadow.getElementById("v-preset-yellow-black").addEventListener("click", () => applyPreset(VISUAL_PRESETS.boldYellowOnBlack));
   shadow.getElementById("v-preset-blue-yellow").addEventListener("click", () => applyPreset(VISUAL_PRESETS.blueYellowContrast));
-  shadow.getElementById("v-preset-soft-gray").addEventListener("click", () => applyPreset(VISUAL_PRESETS.softGrayReading));
 
   shadow.getElementById("v-zoom-out").addEventListener("click", () => {
     const zoomEl = shadow.getElementById("v-zoom-range");
@@ -598,11 +782,16 @@ const createVisualPanel = async () => {
   livePreviewIds.forEach((id) => {
     const eventName = id === "v-contrast-helper" ? "change" : "input";
     shadow.getElementById(id).addEventListener(eventName, () => {
+      if (id === "v-enabled") {
+        A11Y_STATE.settings.visualEffectsEnabled = shadow.getElementById("v-enabled").checked === true;
+      }
       if (id === "v-zoom-range") {
         const zoomNow = clampZoomPercent(shadow.getElementById("v-zoom-range").value);
         shadow.getElementById("v-zoom-label").textContent = `${zoomNow}%`;
       }
-      applyVisualPrefs(readVisualPanelFields());
+      const nextPrefs = readVisualPanelFields();
+      A11Y_STATE.settings.visualPrefs = nextPrefs;
+      applyVisualPrefs(nextPrefs);
       scheduleAutoSave();
     });
   });
@@ -618,7 +807,10 @@ const createVisualPanel = async () => {
   );
 
   const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-  const prefs = mergeVisualPrefs({ ...stored.visualPrefs, enabled: false });
+  const prefs = mergeVisualPrefs({
+    ...stored.visualPrefs,
+    enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
+  });
   updateVisualPanelFields(prefs);
   applyVisualPrefs(prefs);
   A11Y_STATE.settings.visualPrefs = prefs;
@@ -626,7 +818,10 @@ const createVisualPanel = async () => {
 
 const initVisualA11yFeatures = async () => {
   const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-  const prefs = mergeVisualPrefs({ ...stored.visualPrefs, enabled: false });
+  const prefs = mergeVisualPrefs({
+    ...stored.visualPrefs,
+    enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
+  });
   A11Y_STATE.settings.visualPrefs = prefs;
   applyVisualPrefs(prefs);
   await createVisualPanel();
@@ -696,6 +891,7 @@ const COMMAND_HINTS = [
   "explain the page",
   "explain the article",
   "label mode on|off",
+  "focus mode on|off",
   "open <number>",
   "submit",
   "agent mode on|off",
@@ -727,6 +923,8 @@ const COMMON_COMMANDS = [
   "focus previous",
   "label mode on",
   "label mode off",
+  "focus mode on",
+  "focus mode off",
   "agent mode on",
   "agent mode off",
   "open 1",
@@ -944,6 +1142,29 @@ const ensureUi = () => {
       font-size: 12px;
       color: #cbd5e1;
     }
+    .quick-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .focus-toggle {
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .focus-toggle.active {
+      border-color: #22c55e;
+      background: #052e16;
+      color: #bbf7d0;
+      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+    }
     .list {
       margin-top: 10px;
       display: grid;
@@ -1103,7 +1324,10 @@ const ensureUi = () => {
           <input class="cmd-input" type="text" placeholder="Type a command..." />
           <button class="mic-btn" title="Voice input">Mic</button>
         </div>
-        <div class="hint">Try: click checkout, scroll down, label mode on, open 3, what is this page about?</div>
+        <div class="hint">Try: click checkout, scroll down, label mode on, open 3</div>
+        <div class="quick-actions">
+          <button class="focus-toggle">Focus Mode: OFF</button>
+        </div>
         <div class="list"></div>
         <div class="agent-panel">
           <div class="agent-row">
@@ -1148,24 +1372,31 @@ const ensureUi = () => {
   A11Y_STATE.agentTranscriptEl = shadow.querySelector(".agent-transcript");
   A11Y_STATE.agentStepEl = shadow.querySelector(".agent-step");
   A11Y_STATE.agentStopBtn = shadow.querySelector(".agent-stop");
+  A11Y_STATE.focusToggleBtn = shadow.querySelector(".focus-toggle");
   A11Y_STATE.closeBtn = shadow.querySelector(".close-btn");
 
   A11Y_STATE.inputEl.addEventListener("keydown", onInputKeyDown);
   A11Y_STATE.micBtn.addEventListener("click", toggleVoice);
   A11Y_STATE.agentToggleBtn.addEventListener("click", toggleAgentMode);
   A11Y_STATE.agentStopBtn.addEventListener("click", interruptAgent);
+  A11Y_STATE.focusToggleBtn.addEventListener("click", toggleFocusMode);
   A11Y_STATE.paletteEl.addEventListener("mousedown", startDrag);
   A11Y_STATE.closeBtn.addEventListener("click", hidePalette);
+  updateFocusToggleUi();
 };
 
 const loadSettings = async () => {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
   A11Y_STATE.settings = { ...DEFAULT_SETTINGS, ...stored };
+  // Per-page default: visual effects always start OFF on new page loads.
+  A11Y_STATE.settings.visualEffectsEnabled = false;
+  A11Y_STATE.settings.focusModeEnabled = false;
   A11Y_STATE.settings.visualPrefs = mergeVisualPrefs({
     ...(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS),
-    enabled: false,
+    enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
   });
   applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+  clearFocusMode();
 };
 
 const showPalette = async () => {
@@ -1178,6 +1409,7 @@ const showPalette = async () => {
   if (A11Y_STATE.summaryEl) A11Y_STATE.summaryEl.style.display = "none";
   A11Y_STATE.agent.enabled = A11Y_STATE.settings.agentModeEnabled;
   updateAgentUi();
+  updateFocusToggleUi();
   A11Y_STATE.inputEl.value = "";
   A11Y_STATE.inputEl.focus();
   A11Y_STATE.metrics.sessionStart = Date.now();
@@ -1239,6 +1471,24 @@ const endDrag = () => {
   window.removeEventListener("mousemove", onDragMove);
 };
 
+const updateFocusToggleUi = () => {
+  if (!A11Y_STATE.focusToggleBtn) return;
+  A11Y_STATE.focusToggleBtn.textContent = A11Y_STATE.settings.focusModeEnabled ? "Focus Mode: ON" : "Focus Mode: OFF";
+  A11Y_STATE.focusToggleBtn.classList.toggle("active", A11Y_STATE.settings.focusModeEnabled);
+};
+
+const toggleFocusMode = () => {
+  A11Y_STATE.settings.focusModeEnabled = !A11Y_STATE.settings.focusModeEnabled;
+  if (A11Y_STATE.settings.focusModeEnabled) {
+    applyFocusMode();
+    toast("Focus mode on");
+  } else {
+    clearFocusMode();
+    toast("Focus mode off");
+  }
+  updateFocusToggleUi();
+};
+
 const toggleLabelMode = () => {
   A11Y_STATE.labelMode = !A11Y_STATE.labelMode;
   if (A11Y_STATE.labelMode) {
@@ -1259,6 +1509,7 @@ const startObserver = () => {
       A11Y_STATE.observerTimer = null;
       markActionMapStale();
       if (A11Y_STATE.labelMode) scheduleActionMapRefresh();
+      if (A11Y_STATE.settings.focusModeEnabled) scheduleFocusModeSync();
     }, 400);
   });
   A11Y_STATE.observer.observe(document.body, {
@@ -1538,6 +1789,10 @@ const executeInput = async (raw) => {
     if (!parsed.enabled && A11Y_STATE.agent.enabled) toggleAgentMode();
     return;
   }
+  if (parsed.intent === "TOGGLE_FOCUS_MODE") {
+    if (parsed.enabled !== A11Y_STATE.settings.focusModeEnabled) toggleFocusMode();
+    return;
+  }
   if (parsed.intent === "SUMMARIZE") {
     debugLog("summarize: start");
     summarizePage("ARTICLE_MAIN");
@@ -1579,6 +1834,8 @@ const parseCommand = (input) => {
   if (text === "label mode off") return { intent: "TOGGLE_LABEL_MODE", enabled: false };
   if (text === "agent mode on") return { intent: "TOGGLE_AGENT_MODE", enabled: true };
   if (text === "agent mode off") return { intent: "TOGGLE_AGENT_MODE", enabled: false };
+  if (text === "focus mode on") return { intent: "TOGGLE_FOCUS_MODE", enabled: true };
+  if (text === "focus mode off") return { intent: "TOGGLE_FOCUS_MODE", enabled: false };
   const common = parseCommonCommand(text);
   if (common) return common;
   if (STOP_WORDS.includes(text)) return { intent: "STOP" };
@@ -1629,6 +1886,8 @@ const parseCommonCommand = (text) => {
   if (text === "label mode off") return { intent: "TOGGLE_LABEL_MODE", enabled: false };
   if (text === "agent mode on") return { intent: "TOGGLE_AGENT_MODE", enabled: true };
   if (text === "agent mode off") return { intent: "TOGGLE_AGENT_MODE", enabled: false };
+  if (text === "focus mode on") return { intent: "TOGGLE_FOCUS_MODE", enabled: true };
+  if (text === "focus mode off") return { intent: "TOGGLE_FOCUS_MODE", enabled: false };
   return null;
 };
 
@@ -1881,6 +2140,10 @@ const deriveCommandFromTokens = (tokens) => {
   if (hasAny(set, ["back"]) || (set.has("go") && set.has("back"))) return "go back";
 
   if (set.has("focus")) {
+    if (set.has("mode")) {
+      if (set.has("on")) return "focus mode on";
+      if (set.has("off")) return "focus mode off";
+    }
     if (set.has("next")) return "focus next";
     if (set.has("previous")) return "focus previous";
   }
@@ -3052,11 +3315,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "A11Y_SET_VISUALS") {
     A11Y_STATE.settings.visualEffectsEnabled = !!msg.enabled;
+    A11Y_STATE.settings.visualPrefs = mergeVisualPrefs({
+      ...A11Y_STATE.settings.visualPrefs,
+      enabled: A11Y_STATE.settings.visualEffectsEnabled,
+    });
     if (A11Y_STATE.settings.visualEffectsEnabled) {
       applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
     } else {
       clearVisualEffects();
     }
+    updateVisualPanelFields(A11Y_STATE.settings.visualPrefs);
     sendResponse({ ok: true });
     return true;
   }
@@ -3071,13 +3339,15 @@ document.addEventListener("keydown", (e) => {
 
 window.addEventListener("scroll", scheduleLabelRender, { passive: true });
 window.addEventListener("resize", scheduleLabelRender);
+window.addEventListener("scroll", scheduleFocusModeSync, { passive: true });
+window.addEventListener("resize", scheduleFocusModeSync);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
   if (!changes.visualPrefs) return;
   const prefs = mergeVisualPrefs({
     ...(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS),
-    enabled: A11Y_STATE.settings.visualPrefs?.enabled === true,
+    enabled: A11Y_STATE.settings.visualEffectsEnabled === true,
   });
   A11Y_STATE.settings.visualPrefs = prefs;
   applyVisualPrefs(prefs);
