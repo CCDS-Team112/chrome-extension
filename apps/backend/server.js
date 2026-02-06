@@ -15,9 +15,40 @@ app.use(cors());
 app.options("*", cors());
 app.use(express.json({ limit: "200kb" }));
 
+const LOG_LEVEL = (process.env.LOG_LEVEL || "info").toLowerCase();
+const LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
+const log = (level, message, meta) => {
+  const normalized = LOG_LEVELS.has(level) ? level : "info";
+  const allowed =
+    LOG_LEVEL === "debug" ||
+    (LOG_LEVEL === "info" && (normalized === "info" || normalized === "warn" || normalized === "error")) ||
+    (LOG_LEVEL === "warn" && (normalized === "warn" || normalized === "error")) ||
+    (LOG_LEVEL === "error" && normalized === "error");
+  if (!allowed) return;
+  const ts = new Date().toISOString();
+  if (meta !== undefined) {
+    console.log(`[${ts}] [${normalized}] ${message}`, meta);
+  } else {
+    console.log(`[${ts}] [${normalized}] ${message}`);
+  }
+};
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  const requestId = `req_${Math.random().toString(36).slice(2, 10)}`;
+  req.requestId = requestId;
+  res.setHeader("X-Request-Id", requestId);
+  log("info", `[${requestId}] ${req.method} ${req.path}`);
+  res.on("finish", () => {
+    const ms = Date.now() - start;
+    log("info", `[${requestId}] ${req.method} ${req.path} -> ${res.statusCode} ${ms}ms`);
+  });
+  next();
+});
+
 const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
 if (!apiKey) {
-  console.error("Missing OPENAI_API_KEY (or OPENAI_KEY) environment variable.");
+  log("error", "Missing OPENAI_API_KEY (or OPENAI_KEY) environment variable.");
 }
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
@@ -141,6 +172,11 @@ app.post("/resolve", async (req, res) => {
   if (!command || !Array.isArray(candidates) || !candidates.length) {
     return res.status(400).json({ error: "Invalid payload" });
   }
+  log("debug", `[${req.requestId}] /resolve payload`, {
+    commandLength: String(command).length,
+    url: url || "",
+    candidates: candidates.length,
+  });
 
   const payload = {
     command,
@@ -163,6 +199,7 @@ If multiple candidates are plausible and you are not confident, set needsConfirm
 `;
 
   try {
+    log("debug", `[${req.requestId}] /resolve model`, { model: MODEL });
     const response = await ai.chat.completions.create({
       model: MODEL,
       messages: [
@@ -174,6 +211,7 @@ If multiple candidates are plausible and you are not confident, set needsConfirm
     const text = response.choices?.[0]?.message?.content || "";
     const parsed = extractJson(text);
     if (!parsed) {
+      log("warn", `[${req.requestId}] /resolve parse failed`);
       return res.status(200).json({
         chosenId: null,
         confidence: 0,
@@ -183,6 +221,7 @@ If multiple candidates are plausible and you are not confident, set needsConfirm
     }
     const validated = resolveSchema.safeParse(parsed);
     if (!validated.success) {
+      log("warn", `[${req.requestId}] /resolve schema invalid`, validated.error?.issues);
       return res.status(200).json({
         chosenId: null,
         confidence: 0,
@@ -190,9 +229,14 @@ If multiple candidates are plausible and you are not confident, set needsConfirm
         reason: "Invalid model response",
       });
     }
+    log("debug", `[${req.requestId}] /resolve result`, {
+      chosenId: validated.data.chosenId,
+      confidence: validated.data.confidence,
+      needsConfirmation: validated.data.needsConfirmation,
+    });
     return res.json(validated.data);
   } catch (err) {
-    console.error(err);
+    log("error", `[${req.requestId}] /resolve model error`, err?.message || err);
     return res.status(500).json({ error: "Model call failed" });
   }
 });
@@ -205,6 +249,11 @@ app.post("/normalize", async (req, res) => {
   if (!utterance || typeof utterance !== "string") {
     return res.status(400).json({ error: "Invalid payload" });
   }
+  log("debug", `[${req.requestId}] /normalize payload`, {
+    utteranceLength: utterance.length,
+    url: url || "",
+    commandHints: Array.isArray(commandHints) ? commandHints.length : 0,
+  });
   const payload = {
     utterance,
     url: url || "",
@@ -219,6 +268,7 @@ PageContext: ${JSON.stringify(payload.pageContext)}
 Normalize the utterance into a valid command if needed.
 `;
   try {
+    log("debug", `[${req.requestId}] /normalize model`, { model: MODEL });
     const response = await ai.chat.completions.create({
       model: MODEL,
       messages: [
@@ -230,6 +280,7 @@ Normalize the utterance into a valid command if needed.
     const text = response.choices?.[0]?.message?.content || "";
     const parsed = extractJson(text);
     if (!parsed) {
+      log("warn", `[${req.requestId}] /normalize parse failed`);
       return res.status(200).json({
         normalizedCommand: utterance,
         confidence: 0,
@@ -238,15 +289,20 @@ Normalize the utterance into a valid command if needed.
     }
     const validated = normalizeSchema.safeParse(parsed);
     if (!validated.success) {
+      log("warn", `[${req.requestId}] /normalize schema invalid`, validated.error?.issues);
       return res.status(200).json({
         normalizedCommand: utterance,
         confidence: 0,
         reason: "Invalid model response",
       });
     }
+    log("debug", `[${req.requestId}] /normalize result`, {
+      normalizedCommand: validated.data.normalizedCommand,
+      confidence: validated.data.confidence,
+    });
     return res.json(validated.data);
   } catch (err) {
-    console.error(err);
+    log("error", `[${req.requestId}] /normalize model error`, err?.message || err);
     return res.status(500).json({ error: "Model call failed" });
   }
 });
@@ -259,6 +315,12 @@ app.post("/plan", async (req, res) => {
   if (!utterance || !Array.isArray(candidates)) {
     return res.status(400).json({ error: "Invalid payload" });
   }
+  log("debug", `[${req.requestId}] /plan payload`, {
+    utteranceLength: utterance.length,
+    url: url || "",
+    candidates: candidates.length,
+    pageKeywords: Array.isArray(pageKeywords) ? pageKeywords.length : 0,
+  });
 
   const payload = {
     utterance,
@@ -282,6 +344,7 @@ Return a short ordered action plan. Avoid extra steps.
 `;
 
   try {
+    log("debug", `[${req.requestId}] /plan model`, { model: MODEL });
     const response = await ai.chat.completions.create({
       model: MODEL,
       messages: [
@@ -293,6 +356,7 @@ Return a short ordered action plan. Avoid extra steps.
     const text = response.choices?.[0]?.message?.content || "";
     const parsed = extractJson(text);
     if (!parsed) {
+      log("warn", `[${req.requestId}] /plan parse failed`);
       return res.status(200).json({
         actions: [],
         needsClarification: true,
@@ -301,15 +365,21 @@ Return a short ordered action plan. Avoid extra steps.
     }
     const validated = planSchema.safeParse(parsed);
     if (!validated.success) {
+      log("warn", `[${req.requestId}] /plan schema invalid`, validated.error?.issues);
       return res.status(200).json({
         actions: [],
         needsClarification: true,
         needsConfirmation: false,
       });
     }
+    log("debug", `[${req.requestId}] /plan result`, {
+      actions: validated.data.actions?.length || 0,
+      needsClarification: validated.data.needsClarification === true,
+      needsConfirmation: validated.data.needsConfirmation === true,
+    });
     return res.json(validated.data);
   } catch (err) {
-    console.error(err);
+    log("error", `[${req.requestId}] /plan model error`, err?.message || err);
     return res.status(500).json({ error: "Model call failed" });
   }
 });
@@ -322,6 +392,10 @@ app.post("/summarize", async (req, res) => {
   if (!text || typeof text !== "string") {
     return res.status(400).json({ error: "Invalid payload" });
   }
+  log("debug", `[${req.requestId}] /summarize payload`, {
+    textLength: text.length,
+    textPreview: text.slice(0, 120),
+  });
   const prompt = `
 Summarize the following article text.
 Return JSON only with:
@@ -334,13 +408,20 @@ Text:
 ${text.slice(0, 6000)}
 `;
   try {
+    log("debug", `[${req.requestId}] /summarize model`, { model: MODEL });
     const response = await ai.chat.completions.create({
       model: MODEL,
       messages: [{ role: "user", content: prompt.trim() }],
       response_format: { type: "json_object" },
     });
+    log("debug", `[${req.requestId}] /summarize openai response meta`, {
+      id: response?.id,
+      model: response?.model,
+      usage: response?.usage,
+    });
     const parsed = extractJson(response.choices?.[0]?.message?.content || "");
     if (!parsed) {
+      log("warn", `[${req.requestId}] /summarize parse failed`);
       return res.status(200).json({
         overview: "Summary unavailable.",
         bullets: [],
@@ -349,15 +430,34 @@ ${text.slice(0, 6000)}
     }
     const validated = summarySchema.safeParse(parsed);
     if (!validated.success) {
+      log("warn", `[${req.requestId}] /summarize schema invalid`, validated.error?.issues);
       return res.status(200).json({
         overview: "Summary unavailable.",
         bullets: [],
         keyTerms: [],
       });
     }
+    log("debug", `[${req.requestId}] /summarize result`, {
+      bullets: validated.data.bullets?.length || 0,
+      keyTerms: validated.data.keyTerms?.length || 0,
+    });
     return res.json(validated.data);
   } catch (err) {
-    console.error(err);
+    log("error", `[${req.requestId}] /summarize model error`, {
+      message: err?.message || String(err),
+      name: err?.name,
+      code: err?.code,
+      status: err?.status,
+      type: err?.type,
+      stack: err?.stack,
+    });
+    if (err?.response) {
+      log("error", `[${req.requestId}] /summarize model error response`, {
+        status: err.response.status,
+        headers: err.response.headers,
+        body: err.response.data || err.response.body,
+      });
+    }
     return res.status(500).json({ error: "Model call failed" });
   }
 });
@@ -365,5 +465,5 @@ ${text.slice(0, 6000)}
 
 const port = process.env.PORT || 8787;
 app.listen(port, () => {
-  console.log(`A11y Autopilot backend listening on http://localhost:${port}`);
+  log("info", `A11y Autopilot backend listening on http://localhost:${port}`);
 });
