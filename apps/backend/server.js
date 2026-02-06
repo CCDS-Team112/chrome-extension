@@ -107,6 +107,23 @@ For destructive actions (submit, pay, purchase, delete), set needsConfirmation=t
 Use pageKeywords to choose better target labels when possible.
 `;
 
+const GUIDE_SYSTEM_PROMPT = `
+You are an accessibility assistant that helps users navigate a web page.
+Given a page URL and pageContext (headings, buttons, inputs, keywords), produce a very simple, short guide.
+
+Return JSON only, no markdown, using this schema (max 6 items):
+{
+  "overview": string,
+  "whatYouCanDo": string[]
+}
+
+Guidelines:
+- Very simple language. Prefer clarity over accuracy if it gets complex.
+- Only include the most important, useful tools/actions and their consequences.
+- Format each whatYouCanDo item as: "Tool: purpose" (no starting verbs).
+- Limit whatYouCanDo to at most 6 items.
+`;
+
 const ANSWER_SYSTEM_PROMPT = `
 You answer user questions using only the provided page context and text.
 If the answer is not present, say: "I couldn't find that on this page."
@@ -166,6 +183,11 @@ const summarySchema = z.object({
   overview: z.string(),
   bullets: z.array(z.string()).min(1).max(5),
   keyTerms: z.array(z.string()).optional(),
+});
+
+const guideSchema = z.object({
+  overview: z.string(),
+  whatYouCanDo: z.array(z.string()).min(1).max(6),
 });
 
 const normalizeSchema = z.object({
@@ -396,6 +418,57 @@ Return a short ordered action plan. Avoid extra steps.
     return res.json(validated.data);
   } catch (err) {
     log("error", `[${req.requestId}] /plan model error`, err?.message || err);
+    return res.status(500).json({ error: "Model call failed" });
+  }
+});
+
+app.post("/guide", async (req, res) => {
+  if (!ai) {
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
+  }
+  const { url, pageContext } = req.body || {};
+  if (!pageContext || typeof pageContext !== "object") {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  const payload = {
+    url: url || "",
+    pageContext,
+  };
+  const userPrompt = `
+URL: ${payload.url}
+PageContext: ${JSON.stringify(payload.pageContext)}
+Provide a short navigation guide for this page.
+`;
+  try {
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: GUIDE_SYSTEM_PROMPT.trim() },
+        { role: "user", content: userPrompt.trim() },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const text = response.choices?.[0]?.message?.content || "";
+    const parsed = extractJson(text);
+    if (!parsed) {
+      return res.status(200).json({
+        overview: "Guide unavailable.",
+        whatYouCanDo: [],
+      });
+    }
+    if (Array.isArray(parsed.whatYouCanDo)) {
+      parsed.whatYouCanDo = parsed.whatYouCanDo.slice(0, 6);
+    }
+    const validated = guideSchema.safeParse(parsed);
+    if (!validated.success) {
+      return res.status(200).json({
+        overview: "Guide unavailable.",
+        whatYouCanDo: [],
+      });
+    }
+    return res.json(validated.data);
+  } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: "Model call failed" });
   }
 });
