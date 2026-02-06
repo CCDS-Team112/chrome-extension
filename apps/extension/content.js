@@ -57,6 +57,7 @@ const A11Y_STATE = {
   inputEl: null,
   listEl: null,
   hintEl: null,
+  helpBtn: null,
   metricsEl: null,
   toastEl: null,
   summaryEl: null,
@@ -66,6 +67,9 @@ const A11Y_STATE = {
   debugEnabled: true,
   pageContext: null,
   pageContextInit: false,
+  pageGuide: null,
+  pageGuideAt: 0,
+  pageGuideUrl: "",
   labelsEl: null,
   micBtn: null,
   agentToggleBtn: null,
@@ -918,6 +922,11 @@ const COMMAND_HINTS = [
   "submit",
   "agent mode on|off",
   "stop",
+  "help me navigate",
+  "guide me",
+  "what can i do here",
+  "what is this page",
+  "page guide",
 ];
 
 const COMMON_COMMANDS = [
@@ -969,6 +978,15 @@ const COMMON_COMMANDS = [
   "resume reading",
   "keep reading",
   "submit",
+  "help me navigate",
+  "guide me",
+  "what can i do here",
+  "what is this page",
+  "page guide",
+  "navigate this page",
+  "help me use this page",
+  "help me understand this page",
+  "help",
 ];
 
 const KEYWORD_TOKENS = [
@@ -1008,6 +1026,9 @@ const KEYWORD_TOKENS = [
   "cancel",
   "pause",
   "continue",
+  "help",
+  "guide",
+  "navigate",
   "resume",
   "keep",
   "number",
@@ -1175,6 +1196,17 @@ const ensureUi = () => {
       margin-top: 8px;
       font-size: 12px;
       color: #cbd5e1;
+    }
+    .help-btn {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid #38bdf8;
+      background: #0ea5e9;
+      color: #04121f;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
     }
     .quick-actions {
       margin-top: 8px;
@@ -1374,6 +1406,7 @@ const ensureUi = () => {
           <button class="mic-btn" title="Voice input">Mic</button>
         </div>
         <div class="hint">Try: click checkout, scroll down, label mode on, open 3</div>
+        <button class="help-btn" type="button">Help me navigate</button>
         <div class="quick-actions">
           <button class="focus-toggle">Focus Mode: OFF</button>
         </div>
@@ -1414,6 +1447,7 @@ const ensureUi = () => {
   A11Y_STATE.inputEl = shadow.querySelector(".cmd-input");
   A11Y_STATE.listEl = shadow.querySelector(".list");
   A11Y_STATE.hintEl = shadow.querySelector(".hint");
+  A11Y_STATE.helpBtn = shadow.querySelector(".help-btn");
   A11Y_STATE.metricsEl = shadow.querySelector(".metrics");
   A11Y_STATE.toastEl = shadow.querySelector(".toast");
   A11Y_STATE.summaryEl = shadow.querySelector(".summary");
@@ -1432,6 +1466,7 @@ const ensureUi = () => {
   A11Y_STATE.closeBtn = shadow.querySelector(".close-btn");
 
   A11Y_STATE.inputEl.addEventListener("keydown", onInputKeyDown);
+  A11Y_STATE.helpBtn.addEventListener("click", showPageGuide);
   A11Y_STATE.micBtn.addEventListener("click", toggleVoice);
   A11Y_STATE.agentToggleBtn.addEventListener("click", toggleAgentMode);
   A11Y_STATE.agentStopBtn.addEventListener("click", interruptAgent);
@@ -1621,6 +1656,25 @@ const buildPageContext = () => {
   };
 };
 
+const prefetchPageGuide = async () => {
+  const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (!backendUrl) return;
+  const url = location.href;
+  if (A11Y_STATE.pageGuideUrl === url && A11Y_STATE.pageGuide) return;
+  const payload = {
+    url,
+    pageContext: A11Y_STATE.pageContext || buildPageContext(),
+  };
+  try {
+    const guide = await guideWithAi(backendUrl, payload);
+    if (guide) {
+      A11Y_STATE.pageGuide = guide;
+      A11Y_STATE.pageGuideAt = Date.now();
+      A11Y_STATE.pageGuideUrl = url;
+    }
+  } catch (_) {}
+};
+
 const initPageContext = () => {
   if (A11Y_STATE.pageContextInit) return;
   A11Y_STATE.pageContextInit = true;
@@ -1629,6 +1683,7 @@ const initPageContext = () => {
   } catch (_) {
     A11Y_STATE.pageContext = null;
   }
+  prefetchPageGuide();
 };
 
 const stopObserver = () => {
@@ -1862,6 +1917,10 @@ const executeInput = async (raw) => {
     if (parsed.enabled !== A11Y_STATE.settings.focusModeEnabled) toggleFocusMode();
     return;
   }
+  if (parsed.intent === "PAGE_GUIDE") {
+    showPageGuide();
+    return;
+  }
   if (parsed.intent === "SUMMARIZE") {
     debugLog("summarize: start");
     summarizePage("ARTICLE_MAIN");
@@ -1935,6 +1994,9 @@ const parseCommand = (input) => {
   if (text === "focus next") return { intent: "FOCUS_NEXT" };
   if (text === "focus previous") return { intent: "FOCUS_PREV" };
   if (text === "submit") return { intent: "SUBMIT" };
+  if (text === "help me navigate" || text === "guide me" || text === "what can i do here" || text === "what is this page" || text === "page guide") {
+    return { intent: "PAGE_GUIDE" };
+  }
   const summarizeRe = /^(summarize|summary|explain)(\s+(this|the))?(\s+(page|article))?$/;
   if (summarizeRe.test(text)) return { intent: "SUMMARIZE" };
   const click = text.match(/^(click|open)\s+(.+)$/);
@@ -1965,6 +2027,21 @@ const parseCommonCommand = (text) => {
     ].includes(text)
   ) {
     return { intent: "SUMMARIZE" };
+  }
+  if (
+    [
+      "help me navigate",
+      "guide me",
+      "what can i do here",
+      "what is this page",
+      "page guide",
+      "navigate this page",
+      "help me use this page",
+      "help me understand this page",
+      "help",
+    ].includes(text)
+  ) {
+    return { intent: "PAGE_GUIDE" };
   }
   if (RESUME_PHRASES.includes(text)) return { intent: "TTS_RESUME" };
   if (text === "go back" || text === "back") return { intent: "NAV_BACK" };
@@ -2293,6 +2370,22 @@ const mapCommonSynonyms = (text) => {
   if (["back", "go back", "go backward"].includes(norm)) return "go back";
   if (
     [
+      "help",
+      "help me",
+      "help me navigate",
+      "guide me",
+      "navigate this page",
+      "help me use this page",
+      "help me understand this page",
+      "what can i do here",
+      "what is this page",
+      "page guide",
+    ].includes(norm)
+  ) {
+    return "help me navigate";
+  }
+  if (
+    [
       "summarize",
       "summary",
       "summarize this",
@@ -2342,6 +2435,28 @@ const normalizeSpeechLocally = (utterance) => {
     return { command: fixed, confidence: 0.6 };
   }
   return { command: fixed, confidence: 0.4 };
+};
+
+const isPageGuideUtterance = (utterance) => {
+  const norm = normalize(utterance);
+  if (!norm) return false;
+  if (
+    [
+      "help",
+      "help me",
+      "help me navigate",
+      "guide me",
+      "navigate this page",
+      "help me use this page",
+      "help me understand this page",
+      "what can i do here",
+      "what is this page",
+      "page guide",
+    ].includes(norm)
+  ) {
+    return true;
+  }
+  return norm.includes("help") && (norm.includes("navigate") || norm.includes("page"));
 };
 
 const backendFetchJson = (url, body) =>
@@ -2472,8 +2587,10 @@ const resolveWithAi = async (rawCommand, candidates, onChoose) => {
 
 const normalizeSpeechCommand = async (utterance) => {
   const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (isPageGuideUtterance(utterance)) return "help me navigate";
   const local = normalizeSpeechLocally(utterance);
   debugLog(`normalize: raw="${utterance}" local="${local.command}" conf=${local.confidence}`);
+  if (isPageGuideUtterance(local.command)) return "help me navigate";
   if (local.confidence >= 0.8) return local.command;
   if (!backendUrl) return local.command || utterance;
   if (!A11Y_STATE.pageContext) {
@@ -2930,6 +3047,12 @@ const parseSimpleAction = (phrase) => {
 
 const planAndExecute = async (utterance) => {
   if (!A11Y_STATE.agent.enabled) return;
+  if (isPageGuideUtterance(utterance)) {
+    showPageGuide();
+    A11Y_STATE.agent.state = "LISTENING";
+    updateAgentUi();
+    return;
+  }
   const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
   A11Y_STATE.agent.state = "PLANNING";
   A11Y_STATE.agent.interrupt = false;
@@ -3285,6 +3408,83 @@ const summarizeWithAi = async (backendUrl, text) => {
   return backendFetchJson(summarizeUrl, { text });
 };
 
+const guideWithAi = async (backendUrl, payload) => {
+  const guideUrl = backendUrl.endsWith("/resolve")
+    ? backendUrl.replace(/\/resolve$/, "/guide")
+    : backendUrl.endsWith("/plan")
+    ? backendUrl.replace(/\/plan$/, "/guide")
+    : backendUrl.endsWith("/summarize")
+    ? backendUrl.replace(/\/summarize$/, "/guide")
+    : backendUrl.endsWith("/answer")
+    ? backendUrl.replace(/\/answer$/, "/guide")
+    : `${backendUrl.replace(/\/+$/, "")}/guide`;
+  return backendFetchJson(guideUrl, payload);
+};
+
+const showPageGuide = async () => {
+  const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (!backendUrl) {
+    toast("Set backend URL for guide");
+    return;
+  }
+  if (!A11Y_STATE.pageContext) initPageContext();
+  const url = location.href;
+  const now = Date.now();
+  const isFresh = A11Y_STATE.pageGuide && A11Y_STATE.pageGuideUrl === url && now - A11Y_STATE.pageGuideAt < 10 * 60 * 1000;
+  if (isFresh) {
+    renderPageGuide(A11Y_STATE.pageGuide);
+    return;
+  }
+  if (A11Y_STATE.listEl) {
+    A11Y_STATE.listEl.innerHTML = `<div class="list-item">Preparing guide...</div>`;
+  }
+  try {
+    const guide = await guideWithAi(backendUrl, {
+      url,
+      pageContext: A11Y_STATE.pageContext || buildPageContext(),
+    });
+    if (guide) {
+      A11Y_STATE.pageGuide = guide;
+      A11Y_STATE.pageGuideAt = Date.now();
+      A11Y_STATE.pageGuideUrl = url;
+      renderPageGuide(guide);
+    } else {
+      toast("Guide unavailable");
+    }
+  } catch (err) {
+    toast("Guide failed");
+    debugLog(`guide: error ${err?.message || err}`);
+  }
+};
+
+const renderPageGuide = (guide) => {
+  if (!guide || !A11Y_STATE.listEl) return;
+  const overview = escapeHtml(guide.overview || "Overview unavailable.");
+  const actionsRaw = Array.isArray(guide.whatYouCanDo) ? guide.whatYouCanDo : [];
+  const actions = actionsRaw.map((b) => `<li>${boldToolName(escapeHtml(b))}</li>`).join("");
+  A11Y_STATE.listEl.innerHTML = `
+    <div class="list-item"><strong>Page Brief</strong><div>${overview}</div></div>
+    ${actions ? `<div class="list-item"><strong>What You Can Do</strong><ul>${actions}</ul></div>` : ""}
+  `;
+};
+
+const escapeHtml = (value) =>
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const boldToolName = (text) => {
+  const idx = text.indexOf(":");
+  if (idx === -1) return text;
+  const name = text.slice(0, idx).trim();
+  const rest = text.slice(idx + 1).trim();
+  if (!name) return text;
+  return rest ? `<strong>${name}</strong>: ${rest}` : `<strong>${name}</strong>`;
+};
+
 const answerWithAi = async (backendUrl, payload) => {
   const answerUrl = backendUrl.endsWith("/resolve")
     ? backendUrl.replace(/\/resolve$/, "/answer")
@@ -3517,6 +3717,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 const initPaletteOnLoad = () => {
+  initPageContext();
   showPalette().catch(() => {});
 };
 
