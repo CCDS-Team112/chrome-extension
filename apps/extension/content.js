@@ -18,6 +18,15 @@ const A11Y_STATE = {
     agentModeEnabled: true,
     confirmDanger: true,
     demoMetrics: true,
+    visualPrefs: {
+      bodyBackground: "#ffffff",
+      bodyTextColor: "#111111",
+      linksUnderline: true,
+      keyboardFocus: true,
+      focusRingEnabled: true,
+      focusRingColor: "#1a73e8",
+      contrastHelper: "none",
+    },
     backendUrl: "http://localhost:8787/resolve",
   },
   agent: {
@@ -68,11 +77,421 @@ const A11Y_STATE = {
   },
 };
 
+const DEFAULT_VISUAL_SETTINGS = {
+  bodyBackground: "#ffffff",
+  bodyTextColor: "#111111",
+  linksUnderline: true,
+  keyboardFocus: true,
+  focusRingEnabled: true,
+  focusRingColor: "#1a73e8",
+  contrastHelper: "none",
+  zoomPercent: 100,
+};
+
 const DEFAULT_SETTINGS = {
   voiceEnabled: true,
   agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
+  visualPrefs: DEFAULT_VISUAL_SETTINGS,
+};
+
+const VISUAL_PRESETS = {
+  highContrastDark: {
+    bodyBackground: "#000000",
+    bodyTextColor: "#ffffff",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#ffbf00",
+    contrastHelper: "strong",
+  },
+  highContrastLight: {
+    bodyBackground: "#fffbea",
+    bodyTextColor: "#111111",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#005fcc",
+    contrastHelper: "soft",
+  },
+  dyslexiaFriendly: {
+    bodyBackground: "#f7f4ea",
+    bodyTextColor: "#1a1a1a",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#0b6e4f",
+    contrastHelper: "strong",
+  },
+};
+
+const VISUAL_STYLE_ID = "a11y-autopilot-visual-style";
+const VISUAL_ROOT_ID = "a11y-autopilot-visual-root";
+
+const isHexColor = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim());
+
+const clampContrastHelper = (value) => {
+  if (value === "soft" || value === "strong") return value;
+  return "none";
+};
+
+const clampZoomPercent = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 100;
+  return Math.min(200, Math.max(50, Math.round(n)));
+};
+
+const mergeVisualPrefs = (prefs = {}) => ({
+  ...DEFAULT_VISUAL_SETTINGS,
+  ...prefs,
+  bodyBackground: isHexColor(prefs.bodyBackground) ? prefs.bodyBackground.trim() : DEFAULT_VISUAL_SETTINGS.bodyBackground,
+  bodyTextColor: isHexColor(prefs.bodyTextColor) ? prefs.bodyTextColor.trim() : DEFAULT_VISUAL_SETTINGS.bodyTextColor,
+  focusRingColor: isHexColor(prefs.focusRingColor) ? prefs.focusRingColor.trim() : DEFAULT_VISUAL_SETTINGS.focusRingColor,
+  linksUnderline: prefs.linksUnderline !== false,
+  keyboardFocus: prefs.keyboardFocus !== false,
+  focusRingEnabled: prefs.focusRingEnabled !== false,
+  contrastHelper: clampContrastHelper(prefs.contrastHelper),
+  zoomPercent: clampZoomPercent(prefs.zoomPercent),
+});
+
+const ensureVisualStyleTag = () => {
+  let styleEl = document.getElementById(VISUAL_STYLE_ID);
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = VISUAL_STYLE_ID;
+    document.documentElement.appendChild(styleEl);
+  }
+  return styleEl;
+};
+
+const applyVisualPrefs = (rawPrefs) => {
+  const prefs = mergeVisualPrefs(rawPrefs);
+  const styleEl = ensureVisualStyleTag();
+  const underline = prefs.linksUnderline ? "underline" : "none";
+  const focusOutline = prefs.focusRingEnabled ? `3px solid ${prefs.focusRingColor}` : "none";
+  const focusShadow = prefs.focusRingEnabled ? `0 0 0 2px ${prefs.focusRingColor}55` : "none";
+
+  let contrastCss = "";
+  if (prefs.contrastHelper === "soft") {
+    contrastCss = `
+      body p, body li, body dt, body dd, body blockquote { line-height: 1.7 !important; }
+    `;
+  }
+  if (prefs.contrastHelper === "strong") {
+    contrastCss = `
+      body { font-weight: 500 !important; letter-spacing: 0.01em !important; }
+      body p, body li, body dt, body dd, body blockquote { line-height: 1.75 !important; }
+    `;
+  }
+
+  const focusCss = prefs.keyboardFocus
+    ? `
+      :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+        outline: ${focusOutline} !important;
+        outline-offset: 2px !important;
+        box-shadow: ${focusShadow} !important;
+      }
+    `
+    : "";
+
+  styleEl.textContent = `
+    html, body {
+      background: ${prefs.bodyBackground} !important;
+    }
+    html {
+      zoom: ${prefs.zoomPercent}% !important;
+    }
+    body {
+      color: ${prefs.bodyTextColor} !important;
+    }
+    a { text-decoration: ${underline} !important; }
+    ${focusCss}
+    ${contrastCss}
+  `;
+};
+
+const getVisualRoot = () => document.getElementById(VISUAL_ROOT_ID);
+
+const updateVisualPanelFields = (prefs) => {
+  const root = getVisualRoot();
+  if (!root?.shadowRoot) return;
+  const panel = root.shadowRoot;
+  panel.getElementById("v-body-bg").value = prefs.bodyBackground;
+  panel.getElementById("v-text-color").value = prefs.bodyTextColor;
+  panel.getElementById("v-focus-color").value = prefs.focusRingColor;
+  panel.getElementById("v-link-underline").checked = prefs.linksUnderline;
+  panel.getElementById("v-keyboard-focus").checked = prefs.keyboardFocus;
+  panel.getElementById("v-focus-ring-enabled").checked = prefs.focusRingEnabled;
+  panel.getElementById("v-contrast-helper").value = prefs.contrastHelper;
+  panel.getElementById("v-zoom-range").value = String(prefs.zoomPercent);
+  panel.getElementById("v-zoom-label").textContent = `${prefs.zoomPercent}%`;
+};
+
+const readVisualPanelFields = () => {
+  const root = getVisualRoot();
+  const panel = root?.shadowRoot;
+  if (!panel) return mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
+  return mergeVisualPrefs({
+    bodyBackground: panel.getElementById("v-body-bg").value,
+    bodyTextColor: panel.getElementById("v-text-color").value,
+    focusRingColor: panel.getElementById("v-focus-color").value,
+    linksUnderline: panel.getElementById("v-link-underline").checked,
+    keyboardFocus: panel.getElementById("v-keyboard-focus").checked,
+    focusRingEnabled: panel.getElementById("v-focus-ring-enabled").checked,
+    contrastHelper: panel.getElementById("v-contrast-helper").value,
+    zoomPercent: panel.getElementById("v-zoom-range").value,
+  });
+};
+
+const saveVisualPrefs = async (prefs) => {
+  const nextPrefs = mergeVisualPrefs(prefs);
+  A11Y_STATE.settings.visualPrefs = nextPrefs;
+  applyVisualPrefs(nextPrefs);
+  await chrome.storage.local.set({ visualPrefs: nextPrefs });
+};
+
+const createVisualPanel = async () => {
+  if (getVisualRoot()) return;
+  const host = document.createElement("div");
+  host.id = VISUAL_ROOT_ID;
+  const shadow = host.attachShadow({ mode: "open" });
+
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .fab {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 2147483646;
+        pointer-events: auto;
+        border: 1px solid #0f172a;
+        background: #0b3b5a;
+        color: #ffffff;
+        border-radius: 999px;
+        padding: 10px 14px;
+        font: 600 13px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+        cursor: pointer;
+      }
+      .panel {
+        position: fixed;
+        right: 20px;
+        bottom: 68px;
+        width: min(380px, calc(100vw - 24px));
+        max-height: min(78vh, 680px);
+        overflow: auto;
+        z-index: 2147483646;
+        pointer-events: auto;
+        border: 1px solid #1f2937;
+        background: #ffffff;
+        color: #111827;
+        border-radius: 12px;
+        box-shadow: 0 14px 40px rgba(0,0,0,0.28);
+        padding: 12px;
+        display: none;
+        font: 500 13px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+      }
+      .panel.open { display: block; }
+      .title { font-size: 15px; margin: 0 0 8px; }
+      .desc { font-size: 12px; margin: 0 0 10px; color: #374151; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      label { display: block; margin: 8px 0 4px; }
+      input[type="color"], select {
+        width: 100%;
+        height: 34px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+      .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+      .zoom-row {
+        display: grid;
+        grid-template-columns: auto auto 1fr auto auto auto;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      input[type="range"] { width: 100%; }
+      .zoom-label {
+        min-width: 48px;
+        text-align: right;
+        font-weight: 700;
+      }
+      .presets, .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      button {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 7px 10px;
+        background: #f8fafc;
+        color: #111827;
+        cursor: pointer;
+      }
+      .primary { background: #0b3b5a; color: #fff; border-color: #0b3b5a; }
+      .status { min-height: 14px; font-size: 12px; color: #065f46; margin-top: 6px; }
+    </style>
+    <button class="fab" id="v-open-btn" aria-label="Open visual settings">Visual Settings</button>
+    <section class="panel" id="v-panel" aria-label="Visual accessibility settings" role="dialog">
+      <h2 class="title">Visual Accessibility</h2>
+      <p class="desc">Choose contrast and focus settings for better readability across websites.</p>
+
+      <div class="grid">
+        <div>
+          <label for="v-body-bg">Body background</label>
+          <input id="v-body-bg" type="color" />
+        </div>
+        <div>
+          <label for="v-text-color">Body text color</label>
+          <input id="v-text-color" type="color" />
+        </div>
+        <div>
+          <label for="v-focus-color">Focus ring color</label>
+          <input id="v-focus-color" type="color" />
+        </div>
+        <div>
+          <label for="v-contrast-helper">Text contrast helper</label>
+          <select id="v-contrast-helper">
+            <option value="none">None</option>
+            <option value="soft">Soft readability</option>
+            <option value="strong">Strong readability</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="check"><input id="v-link-underline" type="checkbox" /> Underline links</label>
+      <label class="check"><input id="v-keyboard-focus" type="checkbox" /> Enhance keyboard focus visibility</label>
+      <label class="check"><input id="v-focus-ring-enabled" type="checkbox" /> Show custom focus ring</label>
+      <div class="zoom-row">
+        <label for="v-zoom-range">Zoom</label>
+        <button id="v-zoom-out" type="button">-</button>
+        <input id="v-zoom-range" type="range" min="50" max="200" step="5" />
+        <button id="v-zoom-in" type="button">+</button>
+        <span class="zoom-label" id="v-zoom-label">100%</span>
+        <button id="v-zoom-step" type="button">Reset 100%</button>
+      </div>
+
+      <div class="presets">
+        <button id="v-preset-dark" type="button">High Contrast Dark</button>
+        <button id="v-preset-light" type="button">High Contrast Light</button>
+        <button id="v-preset-dyslexia" type="button">Readability Boost</button>
+      </div>
+
+      <div class="actions">
+        <button id="v-save" class="primary" type="button">Save as Default</button>
+        <button id="v-reset" type="button">Reset</button>
+        <button id="v-close" type="button">Close</button>
+      </div>
+      <div class="status" id="v-status"></div>
+    </section>
+  `;
+
+  document.documentElement.appendChild(host);
+  const panel = shadow.getElementById("v-panel");
+  const status = shadow.getElementById("v-status");
+  const openBtn = shadow.getElementById("v-open-btn");
+
+  const showStatus = (text) => {
+    status.textContent = text;
+    setTimeout(() => {
+      if (status.textContent === text) status.textContent = "";
+    }, 1500);
+  };
+
+  openBtn.addEventListener("click", async () => {
+    panel.classList.toggle("open");
+    if (panel.classList.contains("open")) {
+      const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
+      const prefs = mergeVisualPrefs(stored.visualPrefs);
+      updateVisualPanelFields(prefs);
+      applyVisualPrefs(prefs);
+      A11Y_STATE.settings.visualPrefs = prefs;
+    }
+  });
+
+  shadow.getElementById("v-close").addEventListener("click", () => {
+    panel.classList.remove("open");
+  });
+
+  shadow.getElementById("v-save").addEventListener("click", async () => {
+    const prefs = readVisualPanelFields();
+    await saveVisualPrefs(prefs);
+    showStatus("Saved");
+  });
+
+  shadow.getElementById("v-reset").addEventListener("click", async () => {
+    const prefs = mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
+    updateVisualPanelFields(prefs);
+    await saveVisualPrefs(prefs);
+    showStatus("Reset to default");
+  });
+
+  const applyPreset = async (preset) => {
+    const prefs = mergeVisualPrefs(preset);
+    updateVisualPanelFields(prefs);
+    await saveVisualPrefs(prefs);
+    showStatus("Preset applied");
+  };
+
+  shadow.getElementById("v-preset-dark").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastDark));
+  shadow.getElementById("v-preset-light").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastLight));
+  shadow.getElementById("v-preset-dyslexia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dyslexiaFriendly));
+
+  shadow.getElementById("v-zoom-out").addEventListener("click", () => {
+    const zoomEl = shadow.getElementById("v-zoom-range");
+    const next = clampZoomPercent(Number(zoomEl.value) - 5);
+    zoomEl.value = String(next);
+    shadow.getElementById("v-zoom-label").textContent = `${next}%`;
+    applyVisualPrefs(readVisualPanelFields());
+  });
+
+  shadow.getElementById("v-zoom-in").addEventListener("click", () => {
+    const zoomEl = shadow.getElementById("v-zoom-range");
+    const next = clampZoomPercent(Number(zoomEl.value) + 5);
+    zoomEl.value = String(next);
+    shadow.getElementById("v-zoom-label").textContent = `${next}%`;
+    applyVisualPrefs(readVisualPanelFields());
+  });
+
+  shadow.getElementById("v-zoom-step").addEventListener("click", () => {
+    shadow.getElementById("v-zoom-range").value = "100";
+    shadow.getElementById("v-zoom-label").textContent = "100%";
+    applyVisualPrefs(readVisualPanelFields());
+  });
+
+  const livePreviewIds = [
+    "v-body-bg",
+    "v-text-color",
+    "v-focus-color",
+    "v-link-underline",
+    "v-keyboard-focus",
+    "v-focus-ring-enabled",
+    "v-contrast-helper",
+    "v-zoom-range",
+  ];
+  livePreviewIds.forEach((id) => {
+    const eventName = id === "v-contrast-helper" ? "change" : "input";
+    shadow.getElementById(id).addEventListener(eventName, () => {
+      if (id === "v-zoom-range") {
+        const zoomNow = clampZoomPercent(shadow.getElementById("v-zoom-range").value);
+        shadow.getElementById("v-zoom-label").textContent = `${zoomNow}%`;
+      }
+      applyVisualPrefs(readVisualPanelFields());
+    });
+  });
+
+  const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
+  const prefs = mergeVisualPrefs(stored.visualPrefs);
+  updateVisualPanelFields(prefs);
+  applyVisualPrefs(prefs);
+  A11Y_STATE.settings.visualPrefs = prefs;
+};
+
+const initVisualA11yFeatures = async () => {
+  const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
+  const prefs = mergeVisualPrefs(stored.visualPrefs);
+  A11Y_STATE.settings.visualPrefs = prefs;
+  applyVisualPrefs(prefs);
+  await createVisualPanel();
   backendUrl: "http://localhost:8787/resolve",
 };
 
@@ -600,6 +1019,8 @@ const ensureUi = () => {
 const loadSettings = async () => {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
   A11Y_STATE.settings = { ...DEFAULT_SETTINGS, ...stored };
+  A11Y_STATE.settings.visualPrefs = mergeVisualPrefs(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS);
+  applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
 };
 
 const showPalette = async () => {
@@ -2282,8 +2703,13 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("scroll", scheduleLabelRender, { passive: true });
 window.addEventListener("resize", scheduleLabelRender);
 
-if (document.readyState === "complete" || document.readyState === "interactive") {
-  setTimeout(initPageContext, 0);
-} else {
-  window.addEventListener("DOMContentLoaded", initPageContext, { once: true });
-}
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  if (!changes.visualPrefs) return;
+  const prefs = mergeVisualPrefs(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS);
+  A11Y_STATE.settings.visualPrefs = prefs;
+  applyVisualPrefs(prefs);
+  updateVisualPanelFields(prefs);
+});
+
+initVisualA11yFeatures();
