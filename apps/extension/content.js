@@ -64,7 +64,7 @@ const A11Y_STATE = {
   summaryContentEl: null,
   summaryContinueBtn: null,
   debugEl: null,
-  debugEnabled: true,
+  debugEnabled: false,
   pageContext: null,
   pageContextInit: false,
   pageGuide: null,
