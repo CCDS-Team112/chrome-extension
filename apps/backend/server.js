@@ -1,19 +1,27 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import { z } from "zod";
 
+dotenv.config({ path: process.env.ENV_FILE || ".env.local" });
+
 const app = express();
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
+  next();
+});
 app.use(cors());
+app.options("*", cors());
 app.use(express.json({ limit: "200kb" }));
 
-const apiKey = process.env.GEMINI_API_KEY;
+const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
 if (!apiKey) {
-  console.error("Missing GEMINI_API_KEY environment variable.");
+  console.error("Missing OPENAI_API_KEY (or OPENAI_KEY) environment variable.");
 }
 
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
+const ai = apiKey ? new OpenAI({ apiKey }) : null;
 
 const SYSTEM_PROMPT = `
 You are an accessibility assistant for a browser extension.
@@ -27,6 +35,23 @@ Return JSON only, no markdown, using this schema:
   "needsConfirmation": boolean,
   "reason": string
 }
+`;
+
+const NORMALIZE_SYSTEM_PROMPT = `
+You are an assistant that corrects speech-to-text errors for a browser command palette.
+Return JSON only, no markdown, using this schema:
+{
+  "normalizedCommand": string,
+  "confidence": number, // 0..1
+  "reason": string
+}
+
+Rules:
+- Do not invent actions that the user did not ask for.
+- Only normalize to supported command patterns when possible.
+- Use pageContext to disambiguate likely targets.
+- If the utterance already looks valid, return it unchanged with high confidence.
+- Prefer minimal edits (fix misheard words like "school" -> "scroll").
 `;
 
 const PLAN_SYSTEM_PROMPT = `
@@ -101,10 +126,16 @@ const summarySchema = z.object({
   keyTerms: z.array(z.string()).optional(),
 });
 
+const normalizeSchema = z.object({
+  normalizedCommand: z.string(),
+  confidence: z.number().min(0).max(1),
+  reason: z.string(),
+});
+
 
 app.post("/resolve", async (req, res) => {
   if (!ai) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
   }
   const { command, url, candidates } = req.body || {};
   if (!command || !Array.isArray(candidates) || !candidates.length) {
@@ -132,14 +163,15 @@ If multiple candidates are plausible and you are not confident, set needsConfirm
 `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: SYSTEM_PROMPT.trim() + "\n" + userPrompt.trim() }] },
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT.trim() },
+        { role: "user", content: userPrompt.trim() },
       ],
-      generationConfig: { temperature: 0.2 },
+      response_format: { type: "json_object" },
     });
-    const text = response.text || "";
+    const text = response.choices?.[0]?.message?.content || "";
     const parsed = extractJson(text);
     if (!parsed) {
       return res.status(200).json({
@@ -165,9 +197,63 @@ If multiple candidates are plausible and you are not confident, set needsConfirm
   }
 });
 
+app.post("/normalize", async (req, res) => {
+  if (!ai) {
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
+  }
+  const { utterance, url, pageContext, commandHints } = req.body || {};
+  if (!utterance || typeof utterance !== "string") {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  const payload = {
+    utterance,
+    url: url || "",
+    pageContext: pageContext || {},
+    commandHints: Array.isArray(commandHints) ? commandHints : [],
+  };
+  const userPrompt = `
+Utterance: ${payload.utterance}
+URL: ${payload.url}
+CommandHints: ${JSON.stringify(payload.commandHints)}
+PageContext: ${JSON.stringify(payload.pageContext)}
+Normalize the utterance into a valid command if needed.
+`;
+  try {
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: NORMALIZE_SYSTEM_PROMPT.trim() },
+        { role: "user", content: userPrompt.trim() },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const text = response.choices?.[0]?.message?.content || "";
+    const parsed = extractJson(text);
+    if (!parsed) {
+      return res.status(200).json({
+        normalizedCommand: utterance,
+        confidence: 0,
+        reason: "Could not parse model response",
+      });
+    }
+    const validated = normalizeSchema.safeParse(parsed);
+    if (!validated.success) {
+      return res.status(200).json({
+        normalizedCommand: utterance,
+        confidence: 0,
+        reason: "Invalid model response",
+      });
+    }
+    return res.json(validated.data);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Model call failed" });
+  }
+});
+
 app.post("/plan", async (req, res) => {
   if (!ai) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
   }
   const { utterance, url, candidates, pageKeywords } = req.body || {};
   if (!utterance || !Array.isArray(candidates)) {
@@ -196,14 +282,15 @@ Return a short ordered action plan. Avoid extra steps.
 `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: PLAN_SYSTEM_PROMPT.trim() + "\n" + userPrompt.trim() }] },
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: PLAN_SYSTEM_PROMPT.trim() },
+        { role: "user", content: userPrompt.trim() },
       ],
-      generationConfig: { temperature: 0.2 },
+      response_format: { type: "json_object" },
     });
-    const text = response.text || "";
+    const text = response.choices?.[0]?.message?.content || "";
     const parsed = extractJson(text);
     if (!parsed) {
       return res.status(200).json({
@@ -229,7 +316,7 @@ Return a short ordered action plan. Avoid extra steps.
 
 app.post("/summarize", async (req, res) => {
   if (!ai) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
   }
   const { text } = req.body || {};
   if (!text || typeof text !== "string") {
@@ -247,12 +334,12 @@ Text:
 ${text.slice(0, 6000)}
 `;
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{ role: "user", parts: [{ text: prompt.trim() }] }],
-      generationConfig: { temperature: 0.2 },
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [{ role: "user", content: prompt.trim() }],
+      response_format: { type: "json_object" },
     });
-    const parsed = extractJson(response.text || "");
+    const parsed = extractJson(response.choices?.[0]?.message?.content || "");
     if (!parsed) {
       return res.status(200).json({
         overview: "Summary unavailable.",

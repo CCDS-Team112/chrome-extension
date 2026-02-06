@@ -1,8 +1,9 @@
-# Optional Backend (Gemini AI)
+# Optional Backend (OpenAI)
 
-This backend enables AI disambiguation and agent planning using Gemini.
+This backend enables AI disambiguation and agent planning using OpenAI.
 Endpoints:
 - `POST /resolve`
+- `POST /normalize`
 - `POST /plan`
 - `POST /summarize`
 
@@ -10,7 +11,7 @@ Endpoints:
 1. `cd apps/backend`
 2. Use Node.js 20+
 3. Install deps: `npm install`
-4. Create `.env` from `.env.example` and set `GEMINI_API_KEY`
+4. Create `.env.local` from `.env.example` and set `OPENAI_API_KEY` (or `OPENAI_KEY`)
 5. Run: `npm run dev`
 
 Backend runs on `http://localhost:8787`.
@@ -46,6 +47,32 @@ Accepts:
 ```json
 {
   "text": "Full article text (capped to ~6k chars)"
+}
+```
+
+### `POST /normalize`
+Accepts:
+
+```json
+{
+  "utterance": "school down",
+  "url": "https://example.com",
+  "pageContext": {
+    "title": "Docs - Pricing",
+    "headings": ["Pricing", "FAQs"],
+    "buttons": ["Start trial"]
+  },
+  "commandHints": ["scroll down", "click <target>"]
+}
+```
+
+Returns:
+
+```json
+{
+  "normalizedCommand": "scroll down",
+  "confidence": 0.82,
+  "reason": "Common speech-to-text error"
 }
 ```
 
