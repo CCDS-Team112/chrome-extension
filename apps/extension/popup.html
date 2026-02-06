@@ -28,44 +28,38 @@
         box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
       }
       .status {
-        margin: 10px 0 0;
-        font-size: 12px;
+        margin: 12px 0 0;
+        font-size: 13px;
         color: #d0d7e2;
       }
       .note {
-        margin: 6px 0 0;
+        margin: 8px 0 0;
         font-size: 11px;
         color: #9fb0c6;
       }
-      button {
-        width: 100%;
-        padding: 12px 12px;
-        border-radius: 12px;
-        border: 2px solid #86e1ff;
-        background: #6fd3ff;
-        color: #0b1a2b;
-        font-weight: 700;
-        font-size: 15px;
-        cursor: pointer;
-      }
-      button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .footer {
+      .switch-wrap {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-top: 12px;
-        padding-top: 8px;
-        border-top: 1px solid rgba(58, 74, 102, 0.6);
+        gap: 12px;
+        border: 1px solid rgba(134, 225, 255, 0.45);
+        border-radius: 14px;
+        padding: 10px;
+        background: rgba(13, 28, 45, 0.65);
+      }
+      .switch-label {
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .switch-state {
         font-size: 12px;
-        color: #c5d0de;
+        color: #9fb0c6;
       }
       .switch {
         position: relative;
-        width: 38px;
-        height: 22px;
+        width: 66px;
+        height: 36px;
       }
       .switch input {
         opacity: 0;
@@ -78,44 +72,74 @@
         inset: 0;
         background: #2a3b55;
         border-radius: 999px;
-        transition: 0.2s ease;
+        transition: background 0.22s ease, box-shadow 0.22s ease;
         border: 1px solid #3a4a66;
       }
       .slider:before {
         content: "";
         position: absolute;
-        height: 16px;
-        width: 16px;
+        height: 28px;
+        width: 28px;
         left: 3px;
-        top: 2px;
+        top: 3px;
         background: #f5f7fb;
         border-radius: 50%;
-        transition: 0.2s ease;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        transition: transform 0.22s ease, background 0.22s ease;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.34);
+      }
+      .slider:after {
+        content: "OFF";
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #d7dfeb;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
       }
       .switch input:checked + .slider {
-        background: #4ad1a6;
+        background: linear-gradient(135deg, #49d8ac 0%, #2ebf95 100%);
         border-color: #77e3c5;
+        box-shadow: 0 0 0 3px rgba(74, 209, 166, 0.2);
       }
       .switch input:checked + .slider:before {
-        transform: translateX(16px);
+        transform: translateX(30px);
         background: #0b1a2b;
+      }
+      .switch input:checked + .slider:after {
+        content: "ON";
+        left: 10px;
+        right: auto;
+        color: #062416;
+      }
+      .switch input:disabled + .slider {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
       }
     </style>
   </head>
   <body>
     <h1>A11y Autopilot</h1>
     <div class="card">
-      <button id="toggleBtn">Enable Palette</button>
-      <div class="status" id="status">Checking page…</div>
-      <div class="note">Palette is enabled by default on supported pages.</div>
-      <div class="footer">
-        <span>Visual effects</span>
+      <div class="switch-wrap">
+        <div>
+          <div class="switch-label">Visual Customization</div>
+          <div class="switch-state" id="toggleLabel">Off</div>
+        </div>
         <label class="switch" aria-label="Toggle visual effects">
           <input id="powerToggle" type="checkbox" />
           <span class="slider"></span>
         </label>
       </div>
+      <div class="status" id="status">Checking page…</div>
+      <div class="note">Use this switch to apply or remove visual custom effects.</div>
     </div>
     <script src="popup.js"></script>
   </body>
