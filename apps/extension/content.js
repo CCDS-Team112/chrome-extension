@@ -5,6 +5,9 @@ const A11Y_STATE = {
   actionElementsById: new Map(),
   labelMap: new Map(),
   ambiguousCandidates: [],
+  actionMapStale: true,
+  actionMapBuildPending: false,
+  lastActionMapBuildAt: 0,
   metrics: {
     sessionStart: 0,
     steps: 0,
@@ -112,6 +115,8 @@ const ACTION_SELECTORS = [
   "[contenteditable='true']",
   "[tabindex]",
 ];
+const ACTION_QUERY = ACTION_SELECTORS.join(",");
+const ACTION_MAP_STALE_AFTER_MS = 4000;
 
 const COMMAND_HINTS = [
   "click <target>",
@@ -292,6 +297,7 @@ const ensureUi = () => {
       left: 50%;
       transform: translateX(-50%);
       width: min(680px, 92vw);
+      max-height: min(78vh, 720px);
       background: #0b0f14;
       color: #f5f7fa;
       border: 2px solid #2f80ed;
@@ -300,6 +306,7 @@ const ensureUi = () => {
       padding: 12px;
       display: none;
       pointer-events: auto;
+      overflow-y: auto;
     }
     .palette.dragging {
       cursor: grabbing;
@@ -612,7 +619,7 @@ const showPalette = async () => {
   A11Y_STATE.metrics.ambiguity = 0;
   updateMetrics();
   clearList();
-  buildActionMap();
+  buildActionMap({ force: true });
   startObserver();
 };
 
@@ -669,7 +676,7 @@ const endDrag = () => {
 const toggleLabelMode = () => {
   A11Y_STATE.labelMode = !A11Y_STATE.labelMode;
   if (A11Y_STATE.labelMode) {
-    buildActionMap();
+    buildActionMap({ force: true });
     renderLabels();
     toast("Label mode on");
   } else {
@@ -684,8 +691,8 @@ const startObserver = () => {
     if (A11Y_STATE.observerTimer) return;
     A11Y_STATE.observerTimer = setTimeout(() => {
       A11Y_STATE.observerTimer = null;
-      buildActionMap();
-      if (A11Y_STATE.labelMode) renderLabels();
+      markActionMapStale();
+      if (A11Y_STATE.labelMode) scheduleActionMapRefresh();
     }, 400);
   });
   A11Y_STATE.observer.observe(document.body, {
@@ -744,8 +751,35 @@ const stopObserver = () => {
   A11Y_STATE.observer = null;
 };
 
-const buildActionMap = () => {
-  const elements = Array.from(document.querySelectorAll(ACTION_SELECTORS.join(",")));
+const markActionMapStale = () => {
+  A11Y_STATE.actionMapStale = true;
+};
+
+const scheduleActionMapRefresh = () => {
+  if (A11Y_STATE.actionMapBuildPending) return;
+  A11Y_STATE.actionMapBuildPending = true;
+  const run = () => {
+    A11Y_STATE.actionMapBuildPending = false;
+    buildActionMap();
+    if (A11Y_STATE.labelMode) renderLabels();
+  };
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(run, { timeout: 600 });
+  } else {
+    setTimeout(run, 250);
+  }
+};
+
+const shouldRebuildActionMap = (force) => {
+  if (force) return true;
+  if (A11Y_STATE.actionMapStale) return true;
+  if (!A11Y_STATE.actionMap.length) return true;
+  return Date.now() - A11Y_STATE.lastActionMapBuildAt > ACTION_MAP_STALE_AFTER_MS;
+};
+
+const buildActionMap = ({ force = false } = {}) => {
+  if (!shouldRebuildActionMap(force)) return;
+  const elements = Array.from(document.querySelectorAll(ACTION_QUERY));
   const map = [];
   const byId = new Map();
   let index = 1;
@@ -758,6 +792,8 @@ const buildActionMap = () => {
   }
   A11Y_STATE.actionMap = map;
   A11Y_STATE.actionElementsById = byId;
+  A11Y_STATE.actionMapStale = false;
+  A11Y_STATE.lastActionMapBuildAt = Date.now();
 };
 
 const buildActionElement = (el, index) => {
