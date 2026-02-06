@@ -17,6 +17,25 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "A11Y_BACKEND_FETCH") {
+    const { url, method = "POST", headers = {}, body } = msg;
+    fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json", ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+      .then(async (res) => {
+        let json = null;
+        try {
+          json = await res.json();
+        } catch (_) {}
+        sendResponse({ ok: res.ok, status: res.status, json });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, status: 0, error: err?.message || "fetch failed" });
+      });
+    return true;
+  }
   if (msg?.type === "A11Y_TOGGLE_PALETTE") {
     sendToActiveTab({ type: "A11Y_TOGGLE_PALETTE" });
     sendResponse({ ok: true });

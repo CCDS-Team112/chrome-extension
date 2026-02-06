@@ -15,10 +15,10 @@ const A11Y_STATE = {
   },
   settings: {
     voiceEnabled: true,
-    agentModeEnabled: false,
+    agentModeEnabled: true,
     confirmDanger: true,
     demoMetrics: true,
-    backendUrl: "",
+    backendUrl: "http://localhost:8787/resolve",
   },
   agent: {
     enabled: false,
@@ -47,6 +47,11 @@ const A11Y_STATE = {
   hintEl: null,
   metricsEl: null,
   toastEl: null,
+  summaryEl: null,
+  debugEl: null,
+  debugEnabled: true,
+  pageContext: null,
+  pageContextInit: false,
   labelsEl: null,
   micBtn: null,
   agentToggleBtn: null,
@@ -65,10 +70,10 @@ const A11Y_STATE = {
 
 const DEFAULT_SETTINGS = {
   voiceEnabled: true,
-  agentModeEnabled: false,
+  agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
-  backendUrl: "",
+  backendUrl: "http://localhost:8787/resolve",
 };
 
 const DANGEROUS_KEYWORDS = ["delete", "remove", "pay", "submit", "purchase"];
@@ -113,6 +118,163 @@ const ACTION_SELECTORS = [
 const ACTION_QUERY = ACTION_SELECTORS.join(",");
 const ACTION_MAP_STALE_AFTER_MS = 4000;
 
+const COMMAND_HINTS = [
+  "click <target>",
+  "open <target>",
+  "type <value> into <field>",
+  "scroll down|up [amount]",
+  "go back",
+  "reload",
+  "focus next",
+  "focus previous",
+  "summarize this",
+  "summarize page",
+  "summarize article",
+  "explain this",
+  "explain page",
+  "explain article",
+  "summarize the page",
+  "summarize the article",
+  "explain the page",
+  "explain the article",
+  "label mode on|off",
+  "open <number>",
+  "submit",
+  "agent mode on|off",
+  "stop",
+];
+
+const COMMON_COMMANDS = [
+  "scroll down",
+  "scroll up",
+  "summarize",
+  "summarize this",
+  "summarize page",
+  "summarize article",
+  "summary",
+  "explain",
+  "explain this",
+  "explain page",
+  "explain article",
+  "summarize the page",
+  "summarize the article",
+  "explain the page",
+  "explain the article",
+  "go back",
+  "back",
+  "reload",
+  "refresh",
+  "refresh page",
+  "focus next",
+  "focus previous",
+  "label mode on",
+  "label mode off",
+  "agent mode on",
+  "agent mode off",
+  "open 1",
+  "open 2",
+  "open 3",
+  "open 4",
+  "open 5",
+  "open 6",
+  "open 7",
+  "open 8",
+  "open 9",
+  "stop",
+  "cancel",
+  "pause",
+  "submit",
+];
+
+const KEYWORD_TOKENS = [
+  "scroll",
+  "down",
+  "up",
+  "summarize",
+  "summary",
+  "explain",
+  "this",
+  "page",
+  "article",
+  "go",
+  "back",
+  "reload",
+  "refresh",
+  "focus",
+  "next",
+  "previous",
+  "label",
+  "mode",
+  "on",
+  "off",
+  "agent",
+  "open",
+  "click",
+  "type",
+  "into",
+  "submit",
+  "summary",
+  "stop",
+  "cancel",
+  "pause",
+  "number",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
+
+const HOMOPHONE_MAP = new Map([
+  ["school", "scroll"],
+  ["skroll", "scroll"],
+  ["skrol", "scroll"],
+  ["scoll", "scroll"],
+  ["scrol", "scroll"],
+  ["scrolll", "scroll"],
+  ["scrolling", "scroll"],
+  ["sumarize", "summarize"],
+  ["summarise", "summarize"],
+  ["summery", "summary"],
+  ["summury", "summary"],
+  ["sumerize", "summarize"],
+  ["summarise", "summarize"],
+  ["summarize", "summarize"],
+  ["explane", "explain"],
+  ["explain", "explain"],
+  ["explan", "explain"],
+  ["explaying", "explain"],
+  ["bak", "back"],
+  ["backk", "back"],
+  ["relode", "reload"],
+  ["reloade", "reload"],
+  ["refesh", "refresh"],
+  ["refrsh", "refresh"],
+  ["labal", "label"],
+  ["lable", "label"],
+  ["mod", "mode"],
+  ["agnt", "agent"],
+  ["opn", "open"],
+  ["clik", "click"],
+  ["clic", "click"],
+  ["type", "type"],
+  ["tyep", "type"],
+  ["teep", "type"],
+  ["untill", "until"],
+  ["won", "one"],
+  ["to", "two"],
+  ["too", "two"],
+  ["tree", "three"],
+  ["for", "four"],
+  ["fore", "four"],
+  ["ate", "eight"],
+  ["night", "nine"],
+]);
+
 const ensureUi = () => {
   if (A11Y_STATE.root) return;
   const host = document.createElement("div");
@@ -153,6 +315,7 @@ const ensureUi = () => {
     .drag-handle {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
       font-size: 12px;
       color: #94a3b8;
@@ -163,6 +326,25 @@ const ensureUi = () => {
       content: "⋮⋮";
       letter-spacing: 2px;
       font-size: 14px;
+    }
+    .close-btn {
+      margin-left: auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      border: 1px solid #475569;
+      background: #111827;
+      color: #e2e8f0;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .close-btn:hover {
+      border-color: #ef4444;
+      color: #fecaca;
     }
     .row {
       display: flex;
@@ -322,12 +504,40 @@ const ensureUi = () => {
       font-size: 12px;
       color: #93c5fd;
     }
+    .summary {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #0f172a;
+      display: none;
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+    .summary ul {
+      margin: 6px 0 0 16px;
+      padding: 0;
+    }
+    .debug {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px dashed #475569;
+      border-radius: 8px;
+      background: #0b1220;
+      color: #a5b4fc;
+      font-size: 11px;
+      display: none;
+      white-space: pre-wrap;
+    }
   `;
 
   shadow.innerHTML = `
     <div id="wrap">
       <div class="palette" role="dialog" aria-modal="true" aria-label="A11y Autopilot">
-        <div class="drag-handle">Drag</div>
+        <div class="drag-handle">
+          <span>Drag</span>
+          <button class="close-btn" title="Close">×</button>
+        </div>
         <div class="row">
           <input class="cmd-input" type="text" placeholder="Type a command..." />
           <button class="mic-btn" title="Voice input">Mic</button>
@@ -348,6 +558,8 @@ const ensureUi = () => {
           <div class="agent-line agent-transcript">Transcript: —</div>
           <div class="agent-line agent-step">Step: —</div>
         </div>
+        <div class="summary"></div>
+        <div class="debug"></div>
         <div class="metrics"></div>
       </div>
       <div class="labels"></div>
@@ -365,6 +577,8 @@ const ensureUi = () => {
   A11Y_STATE.hintEl = shadow.querySelector(".hint");
   A11Y_STATE.metricsEl = shadow.querySelector(".metrics");
   A11Y_STATE.toastEl = shadow.querySelector(".toast");
+  A11Y_STATE.summaryEl = shadow.querySelector(".summary");
+  A11Y_STATE.debugEl = shadow.querySelector(".debug");
   A11Y_STATE.labelsEl = shadow.querySelector(".labels");
   A11Y_STATE.micBtn = shadow.querySelector(".mic-btn");
   A11Y_STATE.paletteEl = shadow.querySelector(".palette");
@@ -373,12 +587,14 @@ const ensureUi = () => {
   A11Y_STATE.agentTranscriptEl = shadow.querySelector(".agent-transcript");
   A11Y_STATE.agentStepEl = shadow.querySelector(".agent-step");
   A11Y_STATE.agentStopBtn = shadow.querySelector(".agent-stop");
+  A11Y_STATE.closeBtn = shadow.querySelector(".close-btn");
 
   A11Y_STATE.inputEl.addEventListener("keydown", onInputKeyDown);
   A11Y_STATE.micBtn.addEventListener("click", toggleVoice);
   A11Y_STATE.agentToggleBtn.addEventListener("click", toggleAgentMode);
   A11Y_STATE.agentStopBtn.addEventListener("click", interruptAgent);
   A11Y_STATE.paletteEl.addEventListener("mousedown", startDrag);
+  A11Y_STATE.closeBtn.addEventListener("click", hidePalette);
 };
 
 const loadSettings = async () => {
@@ -393,6 +609,7 @@ const showPalette = async () => {
   A11Y_STATE.shadow.querySelector(".palette").style.display = "block";
   A11Y_STATE.shadow.querySelector(".agent-panel").style.display =
     A11Y_STATE.settings.agentModeEnabled ? "block" : "none";
+  if (A11Y_STATE.summaryEl) A11Y_STATE.summaryEl.style.display = "none";
   A11Y_STATE.agent.enabled = A11Y_STATE.settings.agentModeEnabled;
   updateAgentUi();
   A11Y_STATE.inputEl.value = "";
@@ -483,6 +700,49 @@ const startObserver = () => {
     childList: true,
     attributes: true,
   });
+};
+
+const buildPageContext = () => {
+  const sliceText = (text, max = 120) => (text || "").replace(/\s+/g, " ").trim().slice(0, max);
+  const pickText = (el) => sliceText(el?.innerText || el?.textContent || "");
+  const headings = Array.from(document.querySelectorAll("h1,h2,h3"))
+    .map((h) => pickText(h))
+    .filter(Boolean)
+    .slice(0, 10);
+  const buttons = Array.from(document.querySelectorAll("button, a, [role='button'], [role='link']"))
+    .map((b) => sliceText(b.getAttribute("aria-label") || b.innerText || b.textContent || ""))
+    .filter(Boolean)
+    .slice(0, 15);
+  const inputs = Array.from(document.querySelectorAll("input, textarea, select"))
+    .map((i) =>
+      sliceText(
+        i.getAttribute("placeholder") ||
+          i.getAttribute("aria-label") ||
+          i.getAttribute("name") ||
+          i.getAttribute("id") ||
+          ""
+      )
+    )
+    .filter(Boolean)
+    .slice(0, 12);
+  return {
+    title: sliceText(document.title, 140),
+    url: location.href,
+    headings,
+    buttons,
+    inputs,
+    keywords: extractPageKeywords(),
+  };
+};
+
+const initPageContext = () => {
+  if (A11Y_STATE.pageContextInit) return;
+  A11Y_STATE.pageContextInit = true;
+  try {
+    A11Y_STATE.pageContext = buildPageContext();
+  } catch (_) {
+    A11Y_STATE.pageContext = null;
+  }
 };
 
 const stopObserver = () => {
@@ -673,12 +933,15 @@ const onInputKeyDown = (e) => {
 const executeInput = async (raw) => {
   const input = raw.trim();
   if (!input) return;
+  debugLog(`input="${input}"`);
   A11Y_STATE.metrics.steps += 1;
   const parsed = parseCommand(input);
   if (!parsed) {
     toast("Command not recognized");
+    debugLog("parse=none");
     return;
   }
+  debugLog(`parse=${parsed.intent || "unknown"}`);
   clearList();
 
   if (parsed.intent === "SCROLL") {
@@ -707,6 +970,11 @@ const executeInput = async (raw) => {
   if (parsed.intent === "TOGGLE_AGENT_MODE") {
     if (parsed.enabled && !A11Y_STATE.agent.enabled) toggleAgentMode();
     if (!parsed.enabled && A11Y_STATE.agent.enabled) toggleAgentMode();
+    return;
+  }
+  if (parsed.intent === "SUMMARIZE") {
+    debugLog("summarize: start");
+    summarizePage("ARTICLE_MAIN");
     return;
   }
   if (parsed.intent === "STOP") {
@@ -741,20 +1009,54 @@ const parseCommand = (input) => {
   if (text === "label mode off") return { intent: "TOGGLE_LABEL_MODE", enabled: false };
   if (text === "agent mode on") return { intent: "TOGGLE_AGENT_MODE", enabled: true };
   if (text === "agent mode off") return { intent: "TOGGLE_AGENT_MODE", enabled: false };
+  const common = parseCommonCommand(text);
+  if (common) return common;
   if (STOP_WORDS.includes(text)) return { intent: "STOP" };
   const openNumber = text.match(/^open\s+(\d+)$/);
   if (openNumber) return { intent: "OPEN_NUMBER", n: Number(openNumber[1]) };
   const scroll = text.match(/^scroll\s+(down|up)(?:\s+(\d+))?$/);
   if (scroll) return { intent: "SCROLL", direction: scroll[1].toUpperCase(), amountPx: scroll[2] ? Number(scroll[2]) : undefined };
-  if (text === "go back") return { intent: "NAV_BACK" };
-  if (text === "reload") return { intent: "RELOAD" };
   if (text === "focus next") return { intent: "FOCUS_NEXT" };
   if (text === "focus previous") return { intent: "FOCUS_PREV" };
   if (text === "submit") return { intent: "SUBMIT" };
+  const summarizeRe = /^(summarize|summary|explain)(\s+(this|the))?(\s+(page|article))?$/;
+  if (summarizeRe.test(text)) return { intent: "SUMMARIZE" };
   const click = text.match(/^(click|open)\s+(.+)$/);
   if (click) return { intent: "CLICK", targetText: click[2] };
   const type = input.match(/^type\s+(.+)\s+into\s+(.+)$/i);
   if (type) return { intent: "TYPE", value: type[1], fieldHint: type[2] };
+  return null;
+};
+
+const parseCommonCommand = (text) => {
+  if (
+    [
+      "summarize",
+      "summarize this",
+      "summarize page",
+      "summarize the page",
+      "summarize article",
+      "summarize the article",
+      "summary",
+      "explain",
+      "explain this",
+      "explain page",
+      "explain the page",
+      "explain article",
+      "explain the article",
+    ].includes(text)
+  ) {
+    return { intent: "SUMMARIZE" };
+  }
+  if (text === "go back" || text === "back") return { intent: "NAV_BACK" };
+  if (text === "reload" || text === "refresh" || text === "refresh page") return { intent: "RELOAD" };
+  if (text === "focus next") return { intent: "FOCUS_NEXT" };
+  if (text === "focus previous") return { intent: "FOCUS_PREV" };
+  if (text === "submit") return { intent: "SUBMIT" };
+  if (text === "label mode on") return { intent: "TOGGLE_LABEL_MODE", enabled: true };
+  if (text === "label mode off") return { intent: "TOGGLE_LABEL_MODE", enabled: false };
+  if (text === "agent mode on") return { intent: "TOGGLE_AGENT_MODE", enabled: true };
+  if (text === "agent mode off") return { intent: "TOGGLE_AGENT_MODE", enabled: false };
   return null;
 };
 
@@ -845,6 +1147,195 @@ const scoreLabel = (target, label) => {
 };
 
 const normalize = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+const levenshtein = (a, b) => {
+  if (a === b) return 0;
+  const alen = a.length;
+  const blen = b.length;
+  if (!alen) return blen;
+  if (!blen) return alen;
+  const dp = Array.from({ length: alen + 1 }, () => new Array(blen + 1).fill(0));
+  for (let i = 0; i <= alen; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= blen; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= alen; i += 1) {
+    const ca = a[i - 1];
+    for (let j = 1; j <= blen; j += 1) {
+      const cb = b[j - 1];
+      const cost = ca === cb ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[alen][blen];
+};
+
+const normalizeTokens = (tokens) =>
+  tokens
+    .map((raw) => {
+      const t = normalize(raw);
+      if (!t) return "";
+      if (HOMOPHONE_MAP.has(t)) return HOMOPHONE_MAP.get(t);
+      let best = t;
+      let bestScore = 3;
+      for (const kw of KEYWORD_TOKENS) {
+        const dist = levenshtein(t, kw);
+        if (dist < bestScore) {
+          bestScore = dist;
+          best = kw;
+        }
+        if (bestScore === 0) break;
+      }
+      return bestScore <= 2 ? best : t;
+    })
+    .filter(Boolean);
+
+const tokensFromText = (text) =>
+  normalizeTokens(text.split(/\s+/)).map((t) => t.toLowerCase()).filter(Boolean);
+
+const hasAny = (set, words) => words.some((w) => set.has(w));
+
+const deriveCommandFromTokens = (tokens) => {
+  if (!tokens.length) return null;
+  const set = new Set(tokens);
+
+  if (hasAny(set, ["stop", "cancel", "pause"])) return "stop";
+
+  if (set.has("scroll")) {
+    if (set.has("up")) return "scroll up";
+    if (set.has("down")) return "scroll down";
+    return "scroll down";
+  }
+
+  if (hasAny(set, ["summarize", "summary", "explain"])) return "summarize this";
+
+  if (hasAny(set, ["reload", "refresh"])) return "reload";
+
+  if (hasAny(set, ["back"]) || (set.has("go") && set.has("back"))) return "go back";
+
+  if (set.has("focus")) {
+    if (set.has("next")) return "focus next";
+    if (set.has("previous")) return "focus previous";
+  }
+
+  if (set.has("label") && set.has("mode")) {
+    if (set.has("on")) return "label mode on";
+    if (set.has("off")) return "label mode off";
+  }
+
+  if (set.has("agent") && set.has("mode")) {
+    if (set.has("on")) return "agent mode on";
+    if (set.has("off")) return "agent mode off";
+  }
+
+  if (set.has("submit")) return "submit";
+
+  if (set.has("open")) {
+    for (const [word, n] of Object.entries(OPTION_WORDS)) {
+      if (set.has(word)) return `open ${n}`;
+    }
+  }
+
+  return null;
+};
+
+const matchCommonCommand = (utterance) => {
+  const norm = normalize(utterance);
+  if (!norm) return null;
+  const exact = COMMON_COMMANDS.find((cmd) => cmd === norm);
+  if (exact) return { command: exact, confidence: 0.95 };
+  let best = null;
+  let bestScore = 0;
+  for (const cmd of COMMON_COMMANDS) {
+    const dist = levenshtein(norm, cmd);
+    const maxLen = Math.max(norm.length, cmd.length) || 1;
+    const score = 1 - dist / maxLen;
+    if (score > bestScore) {
+      bestScore = score;
+      best = cmd;
+    }
+  }
+  if (best && bestScore >= 0.78) return { command: best, confidence: bestScore };
+  return null;
+};
+
+const mapCommonSynonyms = (text) => {
+  const norm = normalize(text);
+  if (!norm) return null;
+  if (["reload", "refresh", "refresh page"].includes(norm)) return "reload";
+  if (["back", "go back", "go backward"].includes(norm)) return "go back";
+  if (
+    [
+      "summarize",
+      "summary",
+      "summarize this",
+      "summarize page",
+      "summarize the page",
+      "summarize article",
+      "summarize the article",
+      "explain",
+      "explain this",
+      "explain page",
+      "explain the page",
+      "explain article",
+      "explain the article",
+    ].includes(norm)
+  ) {
+    return "summarize this";
+  }
+  return null;
+};
+
+const normalizeSpeechLocally = (utterance) => {
+  const cleaned = normalize(utterance);
+  if (!cleaned) return { command: utterance, confidence: 0 };
+  const common = matchCommonCommand(cleaned);
+  if (common) return common;
+
+  const tokens = normalizeTokens(cleaned.split(/\s+/));
+  const fixed = tokens.join(" ").trim();
+  if (!fixed) return { command: utterance, confidence: 0 };
+
+  const mapped = mapCommonSynonyms(fixed);
+  if (mapped) return { command: mapped, confidence: 0.8 };
+
+  const derived = deriveCommandFromTokens(tokens);
+  if (derived) return { command: derived, confidence: 0.75 };
+
+  const matchAfterFix = matchCommonCommand(fixed);
+  if (matchAfterFix) return matchAfterFix;
+
+  if (fixed.startsWith("scroll ") || fixed === "scroll down" || fixed === "scroll up") {
+    return { command: fixed, confidence: 0.7 };
+  }
+  if (fixed.startsWith("click ") || fixed.startsWith("open ")) {
+    return { command: fixed, confidence: 0.6 };
+  }
+  if (fixed.startsWith("type ") && fixed.includes(" into ")) {
+    return { command: fixed, confidence: 0.6 };
+  }
+  return { command: fixed, confidence: 0.4 };
+};
+
+const backendFetchJson = (url, body) =>
+  new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "A11Y_BACKEND_FETCH", url, method: "POST", body },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.ok) {
+          reject(new Error(response?.error || `HTTP ${response?.status || 0}`));
+          return;
+        }
+        resolve(response.json);
+      }
+    );
+  });
 
 const showAmbiguity = (candidates, onChoose) => {
   A11Y_STATE.metrics.ambiguity += 1;
@@ -939,13 +1430,7 @@ const resolveWithAi = async (rawCommand, candidates, onChoose) => {
       selectorHint: c.info.selectorHint,
     })),
   };
-  const res = await fetch(resolveUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("AI request failed");
-  const data = await res.json();
+  const data = await backendFetchJson(resolveUrl, payload);
   if (data?.needsConfirmation || !data?.chosenId) {
     showAmbiguity(candidates, onChoose);
     return;
@@ -958,6 +1443,44 @@ const resolveWithAi = async (rawCommand, candidates, onChoose) => {
   if (onChoose) onChoose(chosen);
   else maybeConfirmAndClick(chosen.element, chosen.info.label || chosen.info.role);
   clearList();
+};
+
+const normalizeSpeechCommand = async (utterance) => {
+  const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  const local = normalizeSpeechLocally(utterance);
+  debugLog(`normalize: raw="${utterance}" local="${local.command}" conf=${local.confidence}`);
+  if (local.confidence >= 0.8) return local.command;
+  if (!backendUrl) return local.command || utterance;
+  if (!A11Y_STATE.pageContext) {
+    initPageContext();
+  }
+  const normalizeUrl = backendUrl.endsWith("/resolve")
+    ? backendUrl.replace(/\/resolve$/, "/normalize")
+    : backendUrl.endsWith("/plan")
+    ? backendUrl.replace(/\/plan$/, "/normalize")
+    : backendUrl.endsWith("/summarize")
+    ? backendUrl.replace(/\/summarize$/, "/normalize")
+    : `${backendUrl.replace(/\/+$/, "")}/normalize`;
+  const payload = {
+    utterance,
+    url: location.href,
+    pageContext: A11Y_STATE.pageContext || buildPageContext(),
+    commandHints: COMMAND_HINTS,
+  };
+  let data;
+  try {
+    data = await backendFetchJson(normalizeUrl, payload);
+  } catch (err) {
+    debugLog(`normalize: remote error ${err?.message || err}`);
+    return local.command || utterance;
+  }
+  if (!data || typeof data.normalizedCommand !== "string") return local.command || utterance;
+  const normalized = data.normalizedCommand.trim();
+  if (!normalized) return local.command || utterance;
+  const confidence = typeof data.confidence === "number" ? data.confidence : 0;
+  debugLog(`normalize: remote="${normalized}" conf=${confidence}`);
+  if (confidence >= 0.55) return normalized;
+  return local.command || utterance;
 };
 
 const chooseAmbiguous = (n) => {
@@ -1048,6 +1571,16 @@ const toast = (message) => {
   A11Y_STATE.toastTimer = setTimeout(() => {
     if (A11Y_STATE.toastEl) A11Y_STATE.toastEl.style.display = "none";
   }, 1600);
+};
+
+const debugLog = (message) => {
+  if (!A11Y_STATE.debugEnabled || !A11Y_STATE.debugEl) return;
+  const ts = new Date().toLocaleTimeString();
+  A11Y_STATE.debugEl.style.display = "block";
+  const line = `[${ts}] ${message}`;
+  const existing = A11Y_STATE.debugEl.textContent || "";
+  const next = existing ? `${line}\n${existing}` : line;
+  A11Y_STATE.debugEl.textContent = next.slice(0, 2000);
 };
 
 const updateMetrics = () => {
@@ -1191,7 +1724,13 @@ const schedulePlanning = (utterance) => {
     if (!A11Y_STATE.agent.enabled) return;
     if (utterance === A11Y_STATE.agent.lastUtterance) return;
     A11Y_STATE.agent.lastUtterance = utterance;
-    planAndExecute(utterance);
+    normalizeSpeechCommand(utterance)
+      .then((normalized) => {
+        planAndExecute(normalized);
+      })
+      .catch(() => {
+        planAndExecute(utterance);
+      });
   }, 900);
 };
 
@@ -1385,13 +1924,7 @@ const planWithAi = async (backendUrl, utterance, candidates) => {
       selectorHint: c.selectorHint,
     })),
   };
-  const res = await fetch(planUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Plan request failed");
-  return res.json();
+  return backendFetchJson(planUrl, payload);
 };
 
 const executePlan = async (actions) => {
@@ -1604,20 +2137,25 @@ const summarizePage = async (scope) => {
   const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
   if (!backendUrl) {
     toast("Set backend URL for summary");
+    debugLog("summarize: backend url missing");
     return;
   }
   const text = extractArticleText(scope);
   if (!text) {
     toast("No readable text found");
+    debugLog("summarize: no readable text");
     return;
   }
   A11Y_STATE.listEl.innerHTML = `<div class="list-item">Summarizing...</div>`;
   try {
+    debugLog(`summarize: request bytes=${text.length}`);
     const summary = await summarizeWithAi(backendUrl, text);
+    debugLog("summarize: success");
     renderSummary(summary);
     if (summary?.overview) speak(summary.overview);
   } catch (err) {
     toast("Summary failed");
+    debugLog(`summarize: error ${err?.message || err}`);
   }
 };
 
@@ -1638,23 +2176,19 @@ const summarizeWithAi = async (backendUrl, text) => {
     : backendUrl.endsWith("/plan")
     ? backendUrl.replace(/\/plan$/, "/summarize")
     : `${backendUrl.replace(/\/+$/, "")}/summarize`;
-  const res = await fetch(summarizeUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) throw new Error("Summary request failed");
-  return res.json();
+  return backendFetchJson(summarizeUrl, { text });
 };
 
 const renderSummary = (summary) => {
   if (!summary) return;
   const bullets = (summary.bullets || []).map((b) => `<li>${b}</li>`).join("");
   const terms = (summary.keyTerms || []).map((t) => `<li>${t}</li>`).join("");
-  A11Y_STATE.listEl.innerHTML = `
-    <div class="list-item"><strong>Overview</strong><div>${summary.overview || "—"}</div></div>
-    <div class="list-item"><strong>Key Points</strong><ul>${bullets}</ul></div>
-    ${terms ? `<div class="list-item"><strong>Key Terms</strong><ul>${terms}</ul></div>` : ""}
+  if (!A11Y_STATE.summaryEl) return;
+  A11Y_STATE.summaryEl.style.display = "block";
+  A11Y_STATE.summaryEl.innerHTML = `
+    <div><strong>Overview</strong><div>${summary.overview || "—"}</div></div>
+    <div style="margin-top:8px;"><strong>Key Points</strong><ul>${bullets}</ul></div>
+    ${terms ? `<div style="margin-top:8px;"><strong>Key Terms</strong><ul>${terms}</ul></div>` : ""}
   `;
 };
 
@@ -1692,7 +2226,16 @@ const startVoice = () => {
     const last = event.results[event.results.length - 1];
     const transcript = last[0].transcript.trim();
     A11Y_STATE.inputEl.value = transcript;
-    if (last.isFinal) executeInput(transcript);
+    if (last.isFinal) {
+      normalizeSpeechCommand(transcript)
+        .then((normalized) => {
+          if (normalized !== transcript) {
+            A11Y_STATE.inputEl.value = normalized;
+          }
+          executeInput(normalized);
+        })
+        .catch(() => executeInput(transcript));
+    }
   };
   recognition.onend = () => {
     A11Y_STATE.recognition = null;
@@ -1738,3 +2281,9 @@ document.addEventListener("keydown", (e) => {
 
 window.addEventListener("scroll", scheduleLabelRender, { passive: true });
 window.addEventListener("resize", scheduleLabelRender);
+
+if (document.readyState === "complete" || document.readyState === "interactive") {
+  setTimeout(initPageContext, 0);
+} else {
+  window.addEventListener("DOMContentLoaded", initPageContext, { once: true });
+}
