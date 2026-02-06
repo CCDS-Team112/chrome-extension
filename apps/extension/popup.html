@@ -123,11 +123,35 @@
         justify-content: space-between;
         margin-bottom: 8px;
       }
+      .action-btn {
+        width: 100%;
+        border: 1px solid #6ee7ff;
+        background: linear-gradient(135deg, #1a87a7 0%, #0f5a7a 100%);
+        color: #f5f7fb;
+        font-weight: 700;
+        padding: 10px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 13px;
+        letter-spacing: 0.3px;
+        margin-bottom: 12px;
+      }
+      .action-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .action-note {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #9fb0c6;
+      }
     </style>
   </head>
   <body>
     <h1>A11y Autopilot</h1>
     <div class="card">
+      <button class="action-btn" id="paletteToggleBtn" type="button">Enable Palette</button>
+      <div class="action-note" id="paletteStatus">Toggle the command palette on this page.</div>
       <div class="switch-wrap">
         <div>
           <div class="switch-label">Visual Customization</div>

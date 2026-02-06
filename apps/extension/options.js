@@ -1,5 +1,6 @@
 const DEFAULTS = {
   voiceEnabled: true,
+  textToSpeechEnabled: true,
   agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
@@ -9,6 +10,7 @@ const DEFAULTS = {
 const load = async () => {
   const settings = await chrome.storage.local.get(DEFAULTS);
   document.getElementById("voiceEnabled").checked = settings.voiceEnabled;
+  document.getElementById("textToSpeechEnabled").checked = settings.textToSpeechEnabled;
   document.getElementById("agentModeEnabled").checked = settings.agentModeEnabled;
   document.getElementById("confirmDanger").checked = settings.confirmDanger;
   document.getElementById("demoMetrics").checked = settings.demoMetrics;
@@ -18,6 +20,7 @@ const load = async () => {
 const save = async () => {
   const payload = {
     voiceEnabled: document.getElementById("voiceEnabled").checked,
+    textToSpeechEnabled: document.getElementById("textToSpeechEnabled").checked,
     agentModeEnabled: document.getElementById("agentModeEnabled").checked,
     confirmDanger: document.getElementById("confirmDanger").checked,
     demoMetrics: document.getElementById("demoMetrics").checked,
