@@ -673,8 +673,10 @@ const ACTION_SELECTORS = [
 ];
 const ACTION_QUERY = ACTION_SELECTORS.join(",");
 const ACTION_MAP_STALE_AFTER_MS = 4000;
+const SEARCH_HINTS = ["search", "find", "query", "q", "keyword"];
 
 const COMMAND_HINTS = [
+  "search <query>",
   "click <target>",
   "open <target>",
   "type <value> into <field>",
@@ -743,6 +745,9 @@ const COMMON_COMMANDS = [
 ];
 
 const KEYWORD_TOKENS = [
+  "search",
+  "find",
+  "query",
   "scroll",
   "down",
   "up",
@@ -1555,6 +1560,10 @@ const executeInput = async (raw) => {
     handleClickTarget(parsed.targetText, input);
     return;
   }
+  if (parsed.intent === "SEARCH") {
+    handleSearch(parsed.query, input);
+    return;
+  }
   if (parsed.intent === "TYPE") {
     handleType(parsed.value, parsed.fieldHint, input);
     return;
@@ -1584,6 +1593,8 @@ const parseCommand = (input) => {
   if (summarizeRe.test(text)) return { intent: "SUMMARIZE" };
   const click = text.match(/^(click|open)\s+(.+)$/);
   if (click) return { intent: "CLICK", targetText: click[2] };
+  const search = input.match(/^search\s+(?:for\s+)?(.+)$/i);
+  if (search) return { intent: "SEARCH", query: search[1].trim() };
   const type = input.match(/^type\s+(.+)\s+into\s+(.+)$/i);
   if (type) return { intent: "TYPE", value: type[1], fieldHint: type[2] };
   return null;
@@ -1657,6 +1668,99 @@ const handleType = (value, fieldHint, rawCommand) => {
       typeInto(chosen.element, value);
       toast(`Typed into ${chosen.info.label || fieldHint}`);
     });
+  });
+};
+
+const isSearchHint = (text) => {
+  if (!text) return false;
+  const norm = text.toLowerCase();
+  return SEARCH_HINTS.some((hint) => norm.includes(hint));
+};
+
+const scoreSearchField = (el, info) => {
+  if (!el || !info) return 0;
+  let score = 0;
+  const tag = el.tagName?.toLowerCase();
+  if (tag === "input") score += 0.1;
+  if (tag === "textarea") score += 0.05;
+  const type = (el.getAttribute("type") || "").toLowerCase();
+  if (type === "search") score += 1;
+  if (type === "text") score += 0.2;
+  if ((el.getAttribute("role") || "").toLowerCase() === "searchbox") score += 0.9;
+  if ((el.getAttribute("inputmode") || "").toLowerCase() === "search") score += 0.4;
+  const labelBits = [
+    info.label,
+    el.getAttribute("placeholder"),
+    el.getAttribute("aria-label"),
+    el.getAttribute("name"),
+    el.getAttribute("id"),
+    el.getAttribute("title"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (labelBits.includes("search")) score += 0.6;
+  if (labelBits.includes("find")) score += 0.3;
+  if (labelBits.includes("query")) score += 0.3;
+  if (labelBits.includes("q")) score += 0.1;
+  const form = el.closest("form");
+  if (form) {
+    const role = (form.getAttribute("role") || "").toLowerCase();
+    const action = (form.getAttribute("action") || "").toLowerCase();
+    if (role === "search") score += 0.4;
+    if (action.includes("search")) score += 0.3;
+  }
+  if (info.isVisible) score += 0.1;
+  return score;
+};
+
+const getSearchFieldCandidates = () => {
+  buildActionMap();
+  const results = [];
+  for (const item of A11Y_STATE.actionMap) {
+    if (!["input", "textarea", "select"].includes(item.role)) continue;
+    const ref = A11Y_STATE.actionElementsById.get(item.id);
+    if (!ref?.element) continue;
+    const score = scoreSearchField(ref.element, item);
+    if (score <= 0) continue;
+    results.push({ element: ref.element, info: item, score });
+  }
+  results.sort((a, b) => b.score - a.score);
+  return results.slice(0, 9);
+};
+
+const submitSearchField = (el) => {
+  if (!el) return;
+  const form = el.closest("form");
+  if (form) {
+    form.requestSubmit?.() || form.submit?.();
+    return;
+  }
+  pressKey("ENTER");
+};
+
+const handleSearch = (query, rawCommand) => {
+  if (!query) {
+    toast("No search query provided");
+    return;
+  }
+  const candidates = getSearchFieldCandidates();
+  if (!candidates.length) {
+    handleType(query, "search", rawCommand);
+    pressKey("ENTER");
+    return;
+  }
+  const [top, second] = candidates;
+  if (top.score >= 0.7 && (!second || top.score - second.score >= 0.1)) {
+    typeInto(top.element, query);
+    submitSearchField(top.element);
+    toast("Search submitted");
+    return;
+  }
+  showAmbiguity(candidates, (chosen) => {
+    typeInto(chosen.element, query);
+    submitSearchField(chosen.element);
+    toast("Search submitted");
   });
 };
 
@@ -2366,9 +2470,30 @@ const planLocally = (utterance) => {
       ],
     };
   }
+  const searchMatch = text.match(/^search\s+(?:for\s+)?(.+)/);
+  if (searchMatch) {
+    const query = searchMatch[1].trim();
+    if (query) {
+      return {
+        actions: [
+          { kind: "TYPE", value: query, fieldHint: "search" },
+          { kind: "PRESS_KEY", key: "ENTER" },
+        ],
+      };
+    }
+  }
   const phrases = text.split(/,| then | and then | and /).map((p) => p.trim()).filter(Boolean);
   const actions = [];
   for (const phrase of phrases) {
+    const searchPhrase = phrase.match(/^search\s+(?:for\s+)?(.+)/);
+    if (searchPhrase) {
+      const query = searchPhrase[1].trim();
+      if (query) {
+        actions.push({ kind: "TYPE", value: query, fieldHint: "search" });
+        actions.push({ kind: "PRESS_KEY", key: "ENTER" });
+        continue;
+      }
+    }
     const action = parseSimpleAction(phrase);
     if (action) actions.push(action);
   }
@@ -2637,6 +2762,26 @@ const executeType = async (value, fieldHint) => {
   }
   if (!fieldHint && document.activeElement) {
     typeInto(document.activeElement, value);
+    return;
+  }
+  if (fieldHint && isSearchHint(fieldHint)) {
+    const candidates = getSearchFieldCandidates();
+    if (!candidates.length) {
+      toast("No search field found");
+      return;
+    }
+    const [top, second] = candidates;
+    if (top.score >= 0.7 && (!second || top.score - second.score >= 0.1)) {
+      typeInto(top.element, value);
+      return;
+    }
+    A11Y_STATE.agent.state = "NEED_CLARIFICATION";
+    showClarificationOptions(candidates, (chosen) => {
+      if (A11Y_STATE.agent.interrupt) return;
+      typeInto(chosen.element, value);
+      A11Y_STATE.agent.state = "EXECUTING";
+      updateAgentUi();
+    });
     return;
   }
   buildActionMap();
