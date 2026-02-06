@@ -135,6 +135,7 @@ const ensureUi = () => {
       left: 50%;
       transform: translateX(-50%);
       width: min(680px, 92vw);
+      max-height: min(78vh, 720px);
       background: #0b0f14;
       color: #f5f7fa;
       border: 2px solid #2f80ed;
@@ -143,6 +144,7 @@ const ensureUi = () => {
       padding: 12px;
       display: none;
       pointer-events: auto;
+      overflow-y: auto;
     }
     .palette.dragging {
       cursor: grabbing;
