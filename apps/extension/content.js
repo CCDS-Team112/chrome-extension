@@ -78,6 +78,7 @@ const A11Y_STATE = {
 };
 
 const DEFAULT_VISUAL_SETTINGS = {
+  enabled: false,
   bodyBackground: "#ffffff",
   bodyTextColor: "#111111",
   linksUnderline: true,
@@ -125,6 +126,76 @@ const VISUAL_PRESETS = {
     focusRingColor: "#0b6e4f",
     contrastHelper: "strong",
   },
+  sepiaReader: {
+    bodyBackground: "#f4ecd8",
+    bodyTextColor: "#2f2418",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#8b5a2b",
+    contrastHelper: "soft",
+    zoomPercent: 110,
+  },
+  creamPaper: {
+    bodyBackground: "#fff7de",
+    bodyTextColor: "#222222",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#1a5fb4",
+    contrastHelper: "soft",
+    zoomPercent: 105,
+  },
+  dimNightMode: {
+    bodyBackground: "#121212",
+    bodyTextColor: "#e6e6e6",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#7dd3fc",
+    contrastHelper: "soft",
+    zoomPercent: 105,
+  },
+  boldBlackOnYellow: {
+    bodyBackground: "#fff200",
+    bodyTextColor: "#000000",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#1d4ed8",
+    contrastHelper: "strong",
+    zoomPercent: 115,
+  },
+  boldYellowOnBlack: {
+    bodyBackground: "#000000",
+    bodyTextColor: "#ffeb3b",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#ffd54f",
+    contrastHelper: "strong",
+    zoomPercent: 115,
+  },
+  blueYellowContrast: {
+    bodyBackground: "#0a1f44",
+    bodyTextColor: "#ffe066",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#82cfff",
+    contrastHelper: "strong",
+    zoomPercent: 110,
+  },
+  softGrayReading: {
+    bodyBackground: "#eceff3",
+    bodyTextColor: "#1f2937",
+    linksUnderline: true,
+    keyboardFocus: true,
+    focusRingEnabled: true,
+    focusRingColor: "#2563eb",
+    contrastHelper: "soft",
+    zoomPercent: 105,
+  },
 };
 
 const VISUAL_STYLE_ID = "a11y-autopilot-visual-style";
@@ -146,6 +217,7 @@ const clampZoomPercent = (value) => {
 const mergeVisualPrefs = (prefs = {}) => ({
   ...DEFAULT_VISUAL_SETTINGS,
   ...prefs,
+  enabled: prefs.enabled === true,
   bodyBackground: isHexColor(prefs.bodyBackground) ? prefs.bodyBackground.trim() : DEFAULT_VISUAL_SETTINGS.bodyBackground,
   bodyTextColor: isHexColor(prefs.bodyTextColor) ? prefs.bodyTextColor.trim() : DEFAULT_VISUAL_SETTINGS.bodyTextColor,
   focusRingColor: isHexColor(prefs.focusRingColor) ? prefs.focusRingColor.trim() : DEFAULT_VISUAL_SETTINGS.focusRingColor,
@@ -169,6 +241,10 @@ const ensureVisualStyleTag = () => {
 const applyVisualPrefs = (rawPrefs) => {
   const prefs = mergeVisualPrefs(rawPrefs);
   const styleEl = ensureVisualStyleTag();
+  if (!prefs.enabled) {
+    styleEl.textContent = "";
+    return;
+  }
   const underline = prefs.linksUnderline ? "underline" : "none";
   const focusOutline = prefs.focusRingEnabled ? `3px solid ${prefs.focusRingColor}` : "none";
   const focusShadow = prefs.focusRingEnabled ? `0 0 0 2px ${prefs.focusRingColor}55` : "none";
@@ -200,10 +276,8 @@ const applyVisualPrefs = (rawPrefs) => {
     html, body {
       background: ${prefs.bodyBackground} !important;
     }
-    html {
-      zoom: ${prefs.zoomPercent}% !important;
-    }
     body {
+      zoom: ${prefs.zoomPercent}% !important;
       color: ${prefs.bodyTextColor} !important;
     }
     a { text-decoration: ${underline} !important; }
@@ -218,6 +292,7 @@ const updateVisualPanelFields = (prefs) => {
   const root = getVisualRoot();
   if (!root?.shadowRoot) return;
   const panel = root.shadowRoot;
+  panel.getElementById("v-enabled").checked = prefs.enabled !== false;
   panel.getElementById("v-body-bg").value = prefs.bodyBackground;
   panel.getElementById("v-text-color").value = prefs.bodyTextColor;
   panel.getElementById("v-focus-color").value = prefs.focusRingColor;
@@ -234,6 +309,7 @@ const readVisualPanelFields = () => {
   const panel = root?.shadowRoot;
   if (!panel) return mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
   return mergeVisualPrefs({
+    enabled: panel.getElementById("v-enabled").checked,
     bodyBackground: panel.getElementById("v-body-bg").value,
     bodyTextColor: panel.getElementById("v-text-color").value,
     focusRingColor: panel.getElementById("v-focus-color").value,
@@ -249,7 +325,8 @@ const saveVisualPrefs = async (prefs) => {
   const nextPrefs = mergeVisualPrefs(prefs);
   A11Y_STATE.settings.visualPrefs = nextPrefs;
   applyVisualPrefs(nextPrefs);
-  await chrome.storage.local.set({ visualPrefs: nextPrefs });
+  const { enabled: _enabled, ...persistedPrefs } = nextPrefs;
+  await chrome.storage.local.set({ visualPrefs: persistedPrefs });
 };
 
 const createVisualPanel = async () => {
@@ -295,6 +372,15 @@ const createVisualPanel = async () => {
       }
       .panel.open { display: block; }
       .title { font-size: 15px; margin: 0 0 8px; }
+      .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+      .title { margin: 0; }
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
       .desc { font-size: 12px; margin: 0 0 10px; color: #374151; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       label { display: block; margin: 8px 0 4px; }
@@ -333,7 +419,10 @@ const createVisualPanel = async () => {
     </style>
     <button class="fab" id="v-open-btn" aria-label="Open visual settings">Visual Settings</button>
     <section class="panel" id="v-panel" aria-label="Visual accessibility settings" role="dialog">
-      <h2 class="title">Visual Accessibility</h2>
+      <div class="header">
+        <h2 class="title">Visual Accessibility</h2>
+        <label class="toggle"><input id="v-enabled" type="checkbox" /> On</label>
+      </div>
       <p class="desc">Choose contrast and focus settings for better readability across websites.</p>
 
       <div class="grid">
@@ -375,10 +464,16 @@ const createVisualPanel = async () => {
         <button id="v-preset-dark" type="button">High Contrast Dark</button>
         <button id="v-preset-light" type="button">High Contrast Light</button>
         <button id="v-preset-dyslexia" type="button">Readability Boost</button>
+        <button id="v-preset-sepia" type="button">Sepia Reader</button>
+        <button id="v-preset-cream" type="button">Cream Paper</button>
+        <button id="v-preset-dim-night" type="button">Dim Night Mode</button>
+        <button id="v-preset-black-yellow" type="button">Bold Black on Yellow</button>
+        <button id="v-preset-yellow-black" type="button">Bold Yellow on Black</button>
+        <button id="v-preset-blue-yellow" type="button">Blue/Yellow Contrast</button>
+        <button id="v-preset-soft-gray" type="button">Soft Gray Reading</button>
       </div>
 
       <div class="actions">
-        <button id="v-save" class="primary" type="button">Save as Default</button>
         <button id="v-reset" type="button">Reset</button>
         <button id="v-close" type="button">Close</button>
       </div>
@@ -390,6 +485,7 @@ const createVisualPanel = async () => {
   const panel = shadow.getElementById("v-panel");
   const status = shadow.getElementById("v-status");
   const openBtn = shadow.getElementById("v-open-btn");
+  let autoSaveTimer = null;
 
   const showStatus = (text) => {
     status.textContent = text;
@@ -402,7 +498,10 @@ const createVisualPanel = async () => {
     panel.classList.toggle("open");
     if (panel.classList.contains("open")) {
       const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-      const prefs = mergeVisualPrefs(stored.visualPrefs);
+      const prefs = mergeVisualPrefs({
+        ...stored.visualPrefs,
+        enabled: A11Y_STATE.settings.visualPrefs?.enabled === true,
+      });
       updateVisualPanelFields(prefs);
       applyVisualPrefs(prefs);
       A11Y_STATE.settings.visualPrefs = prefs;
@@ -413,21 +512,26 @@ const createVisualPanel = async () => {
     panel.classList.remove("open");
   });
 
-  shadow.getElementById("v-save").addEventListener("click", async () => {
-    const prefs = readVisualPanelFields();
-    await saveVisualPrefs(prefs);
-    showStatus("Saved");
-  });
+  const scheduleAutoSave = () => {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(async () => {
+      const prefs = readVisualPanelFields();
+      await saveVisualPrefs(prefs);
+      showStatus("Auto-saved");
+    }, 120);
+  };
 
   shadow.getElementById("v-reset").addEventListener("click", async () => {
-    const prefs = mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
+    const current = readVisualPanelFields();
+    const prefs = mergeVisualPrefs({ ...DEFAULT_VISUAL_SETTINGS, enabled: current.enabled });
     updateVisualPanelFields(prefs);
     await saveVisualPrefs(prefs);
     showStatus("Reset to default");
   });
 
   const applyPreset = async (preset) => {
-    const prefs = mergeVisualPrefs(preset);
+    const current = readVisualPanelFields();
+    const prefs = mergeVisualPrefs({ ...preset, enabled: current.enabled });
     updateVisualPanelFields(prefs);
     await saveVisualPrefs(prefs);
     showStatus("Preset applied");
@@ -436,6 +540,13 @@ const createVisualPanel = async () => {
   shadow.getElementById("v-preset-dark").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastDark));
   shadow.getElementById("v-preset-light").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastLight));
   shadow.getElementById("v-preset-dyslexia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dyslexiaFriendly));
+  shadow.getElementById("v-preset-sepia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.sepiaReader));
+  shadow.getElementById("v-preset-cream").addEventListener("click", () => applyPreset(VISUAL_PRESETS.creamPaper));
+  shadow.getElementById("v-preset-dim-night").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dimNightMode));
+  shadow.getElementById("v-preset-black-yellow").addEventListener("click", () => applyPreset(VISUAL_PRESETS.boldBlackOnYellow));
+  shadow.getElementById("v-preset-yellow-black").addEventListener("click", () => applyPreset(VISUAL_PRESETS.boldYellowOnBlack));
+  shadow.getElementById("v-preset-blue-yellow").addEventListener("click", () => applyPreset(VISUAL_PRESETS.blueYellowContrast));
+  shadow.getElementById("v-preset-soft-gray").addEventListener("click", () => applyPreset(VISUAL_PRESETS.softGrayReading));
 
   shadow.getElementById("v-zoom-out").addEventListener("click", () => {
     const zoomEl = shadow.getElementById("v-zoom-range");
@@ -443,6 +554,7 @@ const createVisualPanel = async () => {
     zoomEl.value = String(next);
     shadow.getElementById("v-zoom-label").textContent = `${next}%`;
     applyVisualPrefs(readVisualPanelFields());
+    scheduleAutoSave();
   });
 
   shadow.getElementById("v-zoom-in").addEventListener("click", () => {
@@ -451,15 +563,18 @@ const createVisualPanel = async () => {
     zoomEl.value = String(next);
     shadow.getElementById("v-zoom-label").textContent = `${next}%`;
     applyVisualPrefs(readVisualPanelFields());
+    scheduleAutoSave();
   });
 
   shadow.getElementById("v-zoom-step").addEventListener("click", () => {
     shadow.getElementById("v-zoom-range").value = "100";
     shadow.getElementById("v-zoom-label").textContent = "100%";
     applyVisualPrefs(readVisualPanelFields());
+    scheduleAutoSave();
   });
 
   const livePreviewIds = [
+    "v-enabled",
     "v-body-bg",
     "v-text-color",
     "v-focus-color",
@@ -477,11 +592,22 @@ const createVisualPanel = async () => {
         shadow.getElementById("v-zoom-label").textContent = `${zoomNow}%`;
       }
       applyVisualPrefs(readVisualPanelFields());
+      scheduleAutoSave();
     });
   });
 
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (!panel.classList.contains("open")) return;
+      if (event.composedPath().includes(host)) return;
+      panel.classList.remove("open");
+    },
+    true
+  );
+
   const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-  const prefs = mergeVisualPrefs(stored.visualPrefs);
+  const prefs = mergeVisualPrefs({ ...stored.visualPrefs, enabled: false });
   updateVisualPanelFields(prefs);
   applyVisualPrefs(prefs);
   A11Y_STATE.settings.visualPrefs = prefs;
@@ -489,7 +615,7 @@ const createVisualPanel = async () => {
 
 const initVisualA11yFeatures = async () => {
   const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-  const prefs = mergeVisualPrefs(stored.visualPrefs);
+  const prefs = mergeVisualPrefs({ ...stored.visualPrefs, enabled: false });
   A11Y_STATE.settings.visualPrefs = prefs;
   applyVisualPrefs(prefs);
   await createVisualPanel();
@@ -1019,7 +1145,10 @@ const ensureUi = () => {
 const loadSettings = async () => {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
   A11Y_STATE.settings = { ...DEFAULT_SETTINGS, ...stored };
-  A11Y_STATE.settings.visualPrefs = mergeVisualPrefs(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS);
+  A11Y_STATE.settings.visualPrefs = mergeVisualPrefs({
+    ...(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS),
+    enabled: false,
+  });
   applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
 };
 
@@ -2706,7 +2835,10 @@ window.addEventListener("resize", scheduleLabelRender);
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
   if (!changes.visualPrefs) return;
-  const prefs = mergeVisualPrefs(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS);
+  const prefs = mergeVisualPrefs({
+    ...(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS),
+    enabled: A11Y_STATE.settings.visualPrefs?.enabled === true,
+  });
   A11Y_STATE.settings.visualPrefs = prefs;
   applyVisualPrefs(prefs);
   updateVisualPanelFields(prefs);
