@@ -27,6 +27,7 @@ const A11Y_STATE = {
       focusRingColor: "#1a73e8",
       contrastHelper: "none",
     },
+    visualEffectsEnabled: true,
     backendUrl: "http://localhost:8787/resolve",
   },
   agent: {
@@ -95,6 +96,7 @@ const DEFAULT_SETTINGS = {
   demoMetrics: true,
   backendUrl: "http://localhost:8787/resolve",
   visualPrefs: DEFAULT_VISUAL_SETTINGS,
+  visualEffectsEnabled: true,
 };
 
 const VISUAL_PRESETS = {
@@ -166,7 +168,16 @@ const ensureVisualStyleTag = () => {
   return styleEl;
 };
 
+const clearVisualEffects = () => {
+  const styleEl = document.getElementById(VISUAL_STYLE_ID);
+  if (styleEl) styleEl.remove();
+};
+
 const applyVisualPrefs = (rawPrefs) => {
+  if (!A11Y_STATE.settings.visualEffectsEnabled) {
+    clearVisualEffects();
+    return;
+  }
   const prefs = mergeVisualPrefs(rawPrefs);
   const styleEl = ensureVisualStyleTag();
   const underline = prefs.linksUnderline ? "underline" : "none";
@@ -1020,7 +1031,11 @@ const loadSettings = async () => {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
   A11Y_STATE.settings = { ...DEFAULT_SETTINGS, ...stored };
   A11Y_STATE.settings.visualPrefs = mergeVisualPrefs(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS);
-  applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+  if (A11Y_STATE.settings.visualEffectsEnabled) {
+    applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+  } else {
+    clearVisualEffects();
+  }
 };
 
 const showPalette = async () => {
@@ -2681,7 +2696,7 @@ const stopVoice = () => {
   if (A11Y_STATE.micBtn) A11Y_STATE.micBtn.classList.remove("active");
 };
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "A11Y_TOGGLE_PALETTE") {
     togglePalette();
   }
@@ -2690,6 +2705,20 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg?.type === "A11Y_TOGGLE_AGENT") {
     toggleAgentMode();
+  }
+  if (msg?.type === "A11Y_GET_STATE") {
+    sendResponse({ paletteOpen: A11Y_STATE.paletteOpen, visualEffectsEnabled: A11Y_STATE.settings.visualEffectsEnabled });
+    return true;
+  }
+  if (msg?.type === "A11Y_SET_VISUALS") {
+    A11Y_STATE.settings.visualEffectsEnabled = !!msg.enabled;
+    if (A11Y_STATE.settings.visualEffectsEnabled) {
+      applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+    } else {
+      clearVisualEffects();
+    }
+    sendResponse({ ok: true });
+    return true;
   }
 });
 
@@ -2705,11 +2734,32 @@ window.addEventListener("resize", scheduleLabelRender);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
-  if (!changes.visualPrefs) return;
-  const prefs = mergeVisualPrefs(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS);
-  A11Y_STATE.settings.visualPrefs = prefs;
-  applyVisualPrefs(prefs);
-  updateVisualPanelFields(prefs);
+  if (changes.visualPrefs) {
+    const prefs = mergeVisualPrefs(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS);
+    A11Y_STATE.settings.visualPrefs = prefs;
+    if (A11Y_STATE.settings.visualEffectsEnabled) {
+      applyVisualPrefs(prefs);
+    }
+    updateVisualPanelFields(prefs);
+  }
+  if (changes.visualEffectsEnabled) {
+    A11Y_STATE.settings.visualEffectsEnabled = changes.visualEffectsEnabled.newValue;
+    if (A11Y_STATE.settings.visualEffectsEnabled) {
+      applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+    } else {
+      clearVisualEffects();
+    }
+  }
 });
+
+const initPaletteOnLoad = () => {
+  showPalette().catch(() => {});
+};
+
+if (document.readyState === "complete" || document.readyState === "interactive") {
+  setTimeout(initPaletteOnLoad, 0);
+} else {
+  window.addEventListener("DOMContentLoaded", initPaletteOnLoad, { once: true });
+}
 
 initVisualA11yFeatures();

@@ -51,5 +51,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
+  if (msg?.type === "A11Y_GET_STATE") {
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab || !tab.id) {
+        sendResponse({ paletteOpen: false });
+        return;
+      }
+      chrome.tabs.sendMessage(tab.id, { type: "A11Y_GET_STATE" }, (res) => {
+        if (chrome.runtime.lastError) {
+          sendResponse(null);
+          return;
+        }
+        sendResponse(res || null);
+      });
+    });
+    return true;
+  }
+  if (msg?.type === "A11Y_SET_VISUALS") {
+    chrome.storage.local.set({ visualEffectsEnabled: !!msg.enabled });
+    sendToActiveTab({ type: "A11Y_SET_VISUALS", enabled: !!msg.enabled });
+    sendResponse({ ok: true });
+    return true;
+  }
   return false;
 });
