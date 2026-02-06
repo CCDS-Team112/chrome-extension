@@ -9,6 +9,10 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "action": {
+    "default_title": "A11y Autopilot",
+    "default_popup": "popup.html"
+  },
   "commands": {
     "toggle-palette": {
       "suggested_key": {

@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A11y Autopilot</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: "Trebuchet MS", "Segoe UI", Tahoma, sans-serif;
+        background: radial-gradient(circle at top, #14233a 0%, #0f192a 45%, #0b1320 100%);
+        color: #f5f7fb;
+        width: 260px;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 10px;
+      }
+      .card {
+        border: 1px solid #3a4a66;
+        border-radius: 14px;
+        padding: 12px;
+        background: rgba(20, 30, 48, 0.92);
+        box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
+      }
+      .status {
+        margin: 10px 0 0;
+        font-size: 12px;
+        color: #d0d7e2;
+      }
+      .note {
+        margin: 6px 0 0;
+        font-size: 11px;
+        color: #9fb0c6;
+      }
+      button {
+        width: 100%;
+        padding: 12px 12px;
+        border-radius: 12px;
+        border: 2px solid #86e1ff;
+        background: #6fd3ff;
+        color: #0b1a2b;
+        font-weight: 700;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(58, 74, 102, 0.6);
+        font-size: 12px;
+        color: #c5d0de;
+      }
+      .switch {
+        position: relative;
+        width: 38px;
+        height: 22px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #2a3b55;
+        border-radius: 999px;
+        transition: 0.2s ease;
+        border: 1px solid #3a4a66;
+      }
+      .slider:before {
+        content: "";
+        position: absolute;
+        height: 16px;
+        width: 16px;
+        left: 3px;
+        top: 2px;
+        background: #f5f7fb;
+        border-radius: 50%;
+        transition: 0.2s ease;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      }
+      .switch input:checked + .slider {
+        background: #4ad1a6;
+        border-color: #77e3c5;
+      }
+      .switch input:checked + .slider:before {
+        transform: translateX(16px);
+        background: #0b1a2b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>A11y Autopilot</h1>
+    <div class="card">
+      <button id="toggleBtn">Enable Palette</button>
+      <div class="status" id="status">Checking page…</div>
+      <div class="note">Palette is enabled by default on supported pages.</div>
+      <div class="footer">
+        <span>Visual effects</span>
+        <label class="switch" aria-label="Toggle visual effects">
+          <input id="powerToggle" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
