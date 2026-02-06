@@ -9,7 +9,7 @@
   style.id = STYLE_ID;
   style.textContent = `
 :root {
-  --rfs-font-size: 60px;
+  --rfs-font-size: 40px;
   --rfs-line-height: 1.6;
   --rfs-letter-spacing: 0.01em;
 }

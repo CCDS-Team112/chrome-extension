@@ -1,9 +1,9 @@
 const DEFAULTS = {
   voiceEnabled: true,
-  agentModeEnabled: false,
+  agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
-  backendUrl: "",
+  backendUrl: "http://localhost:8787/resolve",
 };
 
 const load = async () => {

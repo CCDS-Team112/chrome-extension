@@ -1,7 +1,7 @@
 # Agent Mode Manual QA
 
 ## Setup
-1. Start backend (`npm run dev`) with `GEMINI_API_KEY`.
+1. Start backend (`npm run dev`) with `OPENAI_API_KEY` (or `OPENAI_KEY`) set in `.env.local`.
 2. In Extension Options, set Backend URL to `http://localhost:8787/resolve`.
 3. Enable Agent Mode.
 

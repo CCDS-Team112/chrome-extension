@@ -38,13 +38,13 @@ Open Extension Options to configure:
 - Voice control enable/disable
 - Confirm dangerous actions
 - Demo metrics display
-- Optional backend URL (Gemini AI disambiguation)
+- Optional backend URL (OpenAI disambiguation)
 
-## Gemini AI (Optional)
+## OpenAI (Optional)
 1. `cd apps/backend`
 2. Use Node.js 20+
 3. `npm install`
-4. Create `.env` from `apps/backend/.env.example` and set `GEMINI_API_KEY`
+4. Create `.env.local` from `apps/backend/.env.example` and set `OPENAI_API_KEY` (or `OPENAI_KEY`)
 5. `npm run dev`
 6. Open Extension Options and set Backend URL to `http://localhost:8787/resolve`
 
