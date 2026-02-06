@@ -9,6 +9,7 @@ Chrome MV3 extension that overlays any site with a command palette + optional vo
 4. Select `apps/extension`
 
 ## Hotkeys
+- Setup toggle key to use. Turn on palette in able to use
 - Toggle palette: `Ctrl+Shift+P` (Mac: `Command+Shift+P`)
 - Toggle label mode: `Ctrl+Shift+L` (Mac: `Command+Shift+L`)
 - Toggle agent mode: `Ctrl+Shift+A` (Mac: `Command+Shift+A`)
