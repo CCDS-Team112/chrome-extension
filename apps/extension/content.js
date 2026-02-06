@@ -2193,7 +2193,18 @@ const validatePlan = (plan) => {
 const planLocally = (utterance) => {
   const text = utterance.toLowerCase().trim();
   if (!text) return null;
-  if (text.includes("explain this article") || text.includes("explain this page") || text.includes("summarize this")) {
+  if (
+    text.includes("explain this article") ||
+    text.includes("explain this page") ||
+    text.includes("explain this") ||
+    text.includes("summarize this") ||
+    text === "summarize" ||
+    text === "summary" ||
+    text === "summarize page" ||
+    text === "summarize the page" ||
+    text === "summarize article" ||
+    text === "summarize the article"
+  ) {
     return { actions: [{ kind: "READ_PAGE_SUMMARY", scope: "ARTICLE_MAIN" }] };
   }
   if (text.includes("scroll down until i say stop") || text.includes("scroll until i say stop")) {
@@ -2279,7 +2290,11 @@ const planAndExecute = async (utterance) => {
   const candidates = A11Y_STATE.actionMap.slice(0, 20);
   try {
     const localPlan = planLocally(utterance);
+    if (localPlan) {
+      debugLog(`agent: local plan actions=${localPlan.actions?.length || 0}`);
+    }
     const plan = localPlan || (backendUrl ? await planWithAi(backendUrl, utterance, candidates) : null);
+    debugLog(`agent: plan received actions=${plan?.actions?.length || 0}`);
     if (!plan) {
       toast("Set backend URL for agent planning");
       A11Y_STATE.agent.state = "LISTENING";
@@ -2287,6 +2302,7 @@ const planAndExecute = async (utterance) => {
       return;
     }
     if (!validatePlan(plan)) {
+      debugLog("agent: plan invalid");
       toast("Invalid plan");
       A11Y_STATE.agent.state = "LISTENING";
       updateAgentUi();
@@ -2296,6 +2312,7 @@ const planAndExecute = async (utterance) => {
       toast("Need clarification");
     }
     if (!plan?.actions?.length) {
+      debugLog("agent: no plan returned");
       toast("No plan returned");
       A11Y_STATE.agent.state = "LISTENING";
       updateAgentUi();
