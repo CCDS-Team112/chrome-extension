@@ -55,6 +55,7 @@ const A11Y_STATE = {
   inputEl: null,
   listEl: null,
   hintEl: null,
+  helpBtn: null,
   metricsEl: null,
   toastEl: null,
   summaryEl: null,
@@ -62,6 +63,9 @@ const A11Y_STATE = {
   debugEnabled: true,
   pageContext: null,
   pageContextInit: false,
+  pageGuide: null,
+  pageGuideAt: 0,
+  pageGuideUrl: "",
   labelsEl: null,
   micBtn: null,
   agentToggleBtn: null,
@@ -299,20 +303,33 @@ const applyVisualPrefs = (rawPrefs) => {
 
 const getVisualRoot = () => document.getElementById(VISUAL_ROOT_ID);
 
+const safePanelValue = (panel, id, fallback = "") => panel.getElementById(id)?.value ?? fallback;
+const safePanelChecked = (panel, id, fallback = false) => panel.getElementById(id)?.checked ?? fallback;
+
 const updateVisualPanelFields = (prefs) => {
   const root = getVisualRoot();
   if (!root?.shadowRoot) return;
   const panel = root.shadowRoot;
-  panel.getElementById("v-enabled").checked = prefs.enabled !== false;
-  panel.getElementById("v-body-bg").value = prefs.bodyBackground;
-  panel.getElementById("v-text-color").value = prefs.bodyTextColor;
-  panel.getElementById("v-focus-color").value = prefs.focusRingColor;
-  panel.getElementById("v-link-underline").checked = prefs.linksUnderline;
-  panel.getElementById("v-keyboard-focus").checked = prefs.keyboardFocus;
-  panel.getElementById("v-focus-ring-enabled").checked = prefs.focusRingEnabled;
-  panel.getElementById("v-contrast-helper").value = prefs.contrastHelper;
-  panel.getElementById("v-zoom-range").value = String(prefs.zoomPercent);
-  panel.getElementById("v-zoom-label").textContent = `${prefs.zoomPercent}%`;
+  const enabledEl = panel.getElementById("v-enabled");
+  const bodyBgEl = panel.getElementById("v-body-bg");
+  const textColorEl = panel.getElementById("v-text-color");
+  const focusColorEl = panel.getElementById("v-focus-color");
+  const linkUnderlineEl = panel.getElementById("v-link-underline");
+  const keyboardFocusEl = panel.getElementById("v-keyboard-focus");
+  const focusRingEl = panel.getElementById("v-focus-ring-enabled");
+  const contrastEl = panel.getElementById("v-contrast-helper");
+  const zoomRangeEl = panel.getElementById("v-zoom-range");
+  const zoomLabelEl = panel.getElementById("v-zoom-label");
+  if (enabledEl) enabledEl.checked = prefs.enabled !== false;
+  if (bodyBgEl) bodyBgEl.value = prefs.bodyBackground;
+  if (textColorEl) textColorEl.value = prefs.bodyTextColor;
+  if (focusColorEl) focusColorEl.value = prefs.focusRingColor;
+  if (linkUnderlineEl) linkUnderlineEl.checked = prefs.linksUnderline;
+  if (keyboardFocusEl) keyboardFocusEl.checked = prefs.keyboardFocus;
+  if (focusRingEl) focusRingEl.checked = prefs.focusRingEnabled;
+  if (contrastEl) contrastEl.value = prefs.contrastHelper;
+  if (zoomRangeEl) zoomRangeEl.value = String(prefs.zoomPercent);
+  if (zoomLabelEl) zoomLabelEl.textContent = `${prefs.zoomPercent}%`;
 };
 
 const readVisualPanelFields = () => {
@@ -320,15 +337,15 @@ const readVisualPanelFields = () => {
   const panel = root?.shadowRoot;
   if (!panel) return mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
   return mergeVisualPrefs({
-    enabled: panel.getElementById("v-enabled").checked,
-    bodyBackground: panel.getElementById("v-body-bg").value,
-    bodyTextColor: panel.getElementById("v-text-color").value,
-    focusRingColor: panel.getElementById("v-focus-color").value,
-    linksUnderline: panel.getElementById("v-link-underline").checked,
-    keyboardFocus: panel.getElementById("v-keyboard-focus").checked,
-    focusRingEnabled: panel.getElementById("v-focus-ring-enabled").checked,
-    contrastHelper: panel.getElementById("v-contrast-helper").value,
-    zoomPercent: panel.getElementById("v-zoom-range").value,
+    enabled: safePanelChecked(panel, "v-enabled", true),
+    bodyBackground: safePanelValue(panel, "v-body-bg", DEFAULT_VISUAL_SETTINGS.bodyBackground),
+    bodyTextColor: safePanelValue(panel, "v-text-color", DEFAULT_VISUAL_SETTINGS.bodyTextColor),
+    focusRingColor: safePanelValue(panel, "v-focus-color", DEFAULT_VISUAL_SETTINGS.focusRingColor),
+    linksUnderline: safePanelChecked(panel, "v-link-underline", DEFAULT_VISUAL_SETTINGS.linksUnderline),
+    keyboardFocus: safePanelChecked(panel, "v-keyboard-focus", DEFAULT_VISUAL_SETTINGS.keyboardFocus),
+    focusRingEnabled: safePanelChecked(panel, "v-focus-ring-enabled", DEFAULT_VISUAL_SETTINGS.focusRingEnabled),
+    contrastHelper: safePanelValue(panel, "v-contrast-helper", DEFAULT_VISUAL_SETTINGS.contrastHelper),
+    zoomPercent: safePanelValue(panel, "v-zoom-range", DEFAULT_VISUAL_SETTINGS.zoomPercent),
   });
 };
 
@@ -698,6 +715,13 @@ const COMMAND_HINTS = [
   "submit",
   "agent mode on|off",
   "stop",
+  "help me navigate",
+  "guide me",
+  "what can i do here",
+  "what is this page",
+  "page guide",
+  "navigate this page",
+  "help",
 ];
 
 const COMMON_COMMANDS = [
@@ -740,6 +764,15 @@ const COMMON_COMMANDS = [
   "cancel",
   "pause",
   "submit",
+  "help me navigate",
+  "guide me",
+  "what can i do here",
+  "what is this page",
+  "navigate this page",
+  "help me use this page",
+  "help me understand this page",
+  "page guide",
+  "help",
 ];
 
 const KEYWORD_TOKENS = [
@@ -752,6 +785,9 @@ const KEYWORD_TOKENS = [
   "this",
   "page",
   "article",
+  "help",
+  "guide",
+  "navigate",
   "go",
   "back",
   "reload",
@@ -939,6 +975,17 @@ const ensureUi = () => {
       font-size: 12px;
       color: #cbd5e1;
     }
+    .help-btn {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid #38bdf8;
+      background: #0ea5e9;
+      color: #04121f;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
     .list {
       margin-top: 10px;
       display: grid;
@@ -1099,6 +1146,7 @@ const ensureUi = () => {
           <button class="mic-btn" title="Voice input">Mic</button>
         </div>
         <div class="hint">Try: click checkout, scroll down, label mode on, open 3</div>
+        <button class="help-btn" type="button">Help me navigate</button>
         <div class="list"></div>
         <div class="agent-panel">
           <div class="agent-row">
@@ -1131,6 +1179,7 @@ const ensureUi = () => {
   A11Y_STATE.inputEl = shadow.querySelector(".cmd-input");
   A11Y_STATE.listEl = shadow.querySelector(".list");
   A11Y_STATE.hintEl = shadow.querySelector(".hint");
+  A11Y_STATE.helpBtn = shadow.querySelector(".help-btn");
   A11Y_STATE.metricsEl = shadow.querySelector(".metrics");
   A11Y_STATE.toastEl = shadow.querySelector(".toast");
   A11Y_STATE.summaryEl = shadow.querySelector(".summary");
@@ -1146,6 +1195,7 @@ const ensureUi = () => {
   A11Y_STATE.closeBtn = shadow.querySelector(".close-btn");
 
   A11Y_STATE.inputEl.addEventListener("keydown", onInputKeyDown);
+  A11Y_STATE.helpBtn.addEventListener("click", showPageGuide);
   A11Y_STATE.micBtn.addEventListener("click", toggleVoice);
   A11Y_STATE.agentToggleBtn.addEventListener("click", toggleAgentMode);
   A11Y_STATE.agentStopBtn.addEventListener("click", interruptAgent);
@@ -1296,6 +1346,25 @@ const buildPageContext = () => {
   };
 };
 
+const prefetchPageGuide = async () => {
+  const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (!backendUrl) return;
+  const url = location.href;
+  if (A11Y_STATE.pageGuideUrl === url && A11Y_STATE.pageGuide) return;
+  const payload = {
+    url,
+    pageContext: A11Y_STATE.pageContext || buildPageContext(),
+  };
+  try {
+    const guide = await guideWithAi(backendUrl, payload);
+    if (guide) {
+      A11Y_STATE.pageGuide = guide;
+      A11Y_STATE.pageGuideAt = Date.now();
+      A11Y_STATE.pageGuideUrl = url;
+    }
+  } catch (_) {}
+};
+
 const initPageContext = () => {
   if (A11Y_STATE.pageContextInit) return;
   A11Y_STATE.pageContextInit = true;
@@ -1304,6 +1373,7 @@ const initPageContext = () => {
   } catch (_) {
     A11Y_STATE.pageContext = null;
   }
+  prefetchPageGuide();
 };
 
 const stopObserver = () => {
@@ -1533,6 +1603,10 @@ const executeInput = async (raw) => {
     if (!parsed.enabled && A11Y_STATE.agent.enabled) toggleAgentMode();
     return;
   }
+  if (parsed.intent === "PAGE_GUIDE") {
+    showPageGuide();
+    return;
+  }
   if (parsed.intent === "SUMMARIZE") {
     debugLog("summarize: start");
     summarizePage("ARTICLE_MAIN");
@@ -1580,6 +1654,10 @@ const parseCommand = (input) => {
   if (text === "focus next") return { intent: "FOCUS_NEXT" };
   if (text === "focus previous") return { intent: "FOCUS_PREV" };
   if (text === "submit") return { intent: "SUBMIT" };
+  const guideRe = /^(help|guide)(\s+me)?(\s+navigate|\s+use|\s+understand)?(\s+this)?(\s+page)?$/;
+  if (guideRe.test(text) || text.includes("what can i do here") || text.includes("what is this page")) {
+    return { intent: "PAGE_GUIDE" };
+  }
   const summarizeRe = /^(summarize|summary|explain)(\s+(this|the))?(\s+(page|article))?$/;
   if (summarizeRe.test(text)) return { intent: "SUMMARIZE" };
   const click = text.match(/^(click|open)\s+(.+)$/);
@@ -1608,6 +1686,21 @@ const parseCommonCommand = (text) => {
     ].includes(text)
   ) {
     return { intent: "SUMMARIZE" };
+  }
+  if (
+    [
+      "help me navigate",
+      "guide me",
+      "what can i do here",
+      "what is this page",
+      "page guide",
+      "navigate this page",
+      "how do i use this page",
+      "help me use this page",
+      "help me understand this page",
+    ].includes(text)
+  ) {
+    return { intent: "PAGE_GUIDE" };
   }
   if (text === "go back" || text === "back") return { intent: "NAV_BACK" };
   if (text === "reload" || text === "refresh" || text === "refresh page") return { intent: "RELOAD" };
@@ -1829,6 +1922,22 @@ const mapCommonSynonyms = (text) => {
   if (["back", "go back", "go backward"].includes(norm)) return "go back";
   if (
     [
+      "help",
+      "help me",
+      "help me navigate",
+      "guide me",
+      "navigate this page",
+      "help me use this page",
+      "help me understand this page",
+      "what can i do here",
+      "what is this page",
+      "page guide",
+    ].includes(norm)
+  ) {
+    return "help me navigate";
+  }
+  if (
+    [
       "summarize",
       "summary",
       "summarize this",
@@ -1878,6 +1987,28 @@ const normalizeSpeechLocally = (utterance) => {
     return { command: fixed, confidence: 0.6 };
   }
   return { command: fixed, confidence: 0.4 };
+};
+
+const isPageGuideUtterance = (utterance) => {
+  const norm = normalize(utterance);
+  if (!norm) return false;
+  if (
+    [
+      "help",
+      "help me",
+      "help me navigate",
+      "guide me",
+      "navigate this page",
+      "help me use this page",
+      "help me understand this page",
+      "what can i do here",
+      "what is this page",
+      "page guide",
+    ].includes(norm)
+  ) {
+    return true;
+  }
+  return norm.includes("help") && (norm.includes("navigate") || norm.includes("page"));
 };
 
 const backendFetchJson = (url, body) =>
@@ -2008,8 +2139,10 @@ const resolveWithAi = async (rawCommand, candidates, onChoose) => {
 
 const normalizeSpeechCommand = async (utterance) => {
   const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (isPageGuideUtterance(utterance)) return "help me navigate";
   const local = normalizeSpeechLocally(utterance);
   debugLog(`normalize: raw="${utterance}" local="${local.command}" conf=${local.confidence}`);
+  if (isPageGuideUtterance(local.command)) return "help me navigate";
   if (local.confidence >= 0.8) return local.command;
   if (!backendUrl) return local.command || utterance;
   if (!A11Y_STATE.pageContext) {
@@ -2422,6 +2555,12 @@ const parseSimpleAction = (phrase) => {
 
 const planAndExecute = async (utterance) => {
   if (!A11Y_STATE.agent.enabled) return;
+  if (isPageGuideUtterance(utterance)) {
+    showPageGuide();
+    A11Y_STATE.agent.state = "LISTENING";
+    updateAgentUi();
+    return;
+  }
   const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
   A11Y_STATE.agent.state = "PLANNING";
   A11Y_STATE.agent.interrupt = false;
@@ -2737,6 +2876,121 @@ const summarizePage = async (scope) => {
   }
 };
 
+const showPageGuide = async () => {
+  const backendUrl = (A11Y_STATE.settings.backendUrl || "").trim();
+  if (!A11Y_STATE.pageContext) initPageContext();
+  if (!backendUrl) {
+    console.log("page guide: backend url missing");
+    if (A11Y_STATE.listEl) {
+      A11Y_STATE.listEl.innerHTML = `
+        <div class="list-item"><strong>AI Guide Unavailable</strong><div>Backend URL is not set. Set it in Extension Options.</div></div>
+      `;
+    }
+    return;
+  }
+  const url = location.href;
+  const now = Date.now();
+  const isFresh = A11Y_STATE.pageGuide && A11Y_STATE.pageGuideUrl === url && now - A11Y_STATE.pageGuideAt < 10 * 60 * 1000;
+  if (isFresh) {
+    renderPageGuide(A11Y_STATE.pageGuide);
+    return;
+  }
+  if (A11Y_STATE.listEl) {
+    A11Y_STATE.listEl.innerHTML = `<div class="list-item">Analyzing page…</div>`;
+  }
+  try {
+    const guide = await guideWithAi(backendUrl, {
+      url,
+      pageContext: A11Y_STATE.pageContext || buildPageContext(),
+    });
+    if (guide) {
+      A11Y_STATE.pageGuide = guide;
+      A11Y_STATE.pageGuideAt = Date.now();
+      A11Y_STATE.pageGuideUrl = url;
+      renderPageGuide(guide);
+    } else {
+      if (A11Y_STATE.listEl) {
+        A11Y_STATE.listEl.innerHTML = `
+          <div class="list-item"><strong>AI Guide Unavailable</strong><div>The server returned no guide.</div></div>
+        `;
+      }
+    }
+  } catch (err) {
+    const msg = (err && err.message) ? err.message : "Unknown error";
+    if (A11Y_STATE.listEl) {
+      A11Y_STATE.listEl.innerHTML = `
+        <div class="list-item"><strong>AI Guide Failed</strong><div>${msg}</div></div>
+      `;
+    }
+  }
+};
+
+const renderPageGuide = (guide) => {
+  if (!guide || !A11Y_STATE.listEl) return;
+  if (typeof guide === "string") {
+    A11Y_STATE.listEl.innerHTML = `<div class="list-item"><strong>Page Guide</strong><div>${guide}</div></div>`;
+    return;
+  }
+  const overview = guide.overview || "Overview unavailable.";
+  const highlights = Array.isArray(guide.highlights) ? guide.highlights : [];
+  const actionsRaw = Array.isArray(guide.whatYouCanDo) ? guide.whatYouCanDo : [];
+  const actions = actionsRaw
+    .map((b) => `<li>${boldToolName(applyHighlights(escapeHtml(b), highlights))}</li>`)
+    .join("");
+  const overviewHtml = applyHighlights(escapeHtml(overview), highlights);
+  A11Y_STATE.listEl.innerHTML = `
+    <div class="list-item"><strong>Page Brief</strong><div>${overviewHtml}</div></div>
+    ${actions ? `<div class="list-item"><strong>What You Can Do</strong><ul>${actions}</ul></div>` : ""}
+  `;
+};
+
+const escapeHtml = (value) =>
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const applyHighlights = (htmlText, highlights) => {
+  if (!highlights.length) return htmlText;
+  let result = htmlText;
+  highlights.forEach((phrase) => {
+    const clean = escapeRegExp(String(phrase || "").trim());
+    if (!clean) return;
+    const re = new RegExp(`(${clean})`, "ig");
+    result = result.replace(re, "<strong>$1</strong>");
+  });
+  return result;
+};
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const boldToolName = (htmlText) => {
+  const idx = htmlText.indexOf(":");
+  if (idx === -1) return htmlText;
+  const name = htmlText.slice(0, idx).trim();
+  const rest = htmlText.slice(idx + 1).trim();
+  if (!name) return htmlText;
+  const safeName = `<strong>${name}</strong>`;
+  return rest ? `${safeName}: ${rest}` : safeName;
+};
+
+const buildLocalGuide = () => {
+  const ctx = A11Y_STATE.pageContext || buildPageContext();
+  const title = ctx?.title ? `"${ctx.title}"` : "this page";
+  const headings = (ctx?.headings || []).filter(Boolean).slice(0, 3);
+  const buttons = (ctx?.buttons || []).filter(Boolean).slice(0, 5);
+  const inputs = (ctx?.inputs || []).filter(Boolean).slice(0, 3);
+  const parts = [];
+  parts.push(`You are on ${title}.`);
+  if (headings.length) parts.push(`Main sections: ${headings.join(", ")}.`);
+  if (buttons.length) parts.push(`Things you can do: ${buttons.join(", ")}.`);
+  if (inputs.length) parts.push(`Fields you can use: ${inputs.join(", ")}.`);
+  parts.push("Try: say “click <name>”, “scroll down”, or “open 1”.");
+  return parts.join(" ");
+};
+
 const extractArticleText = (scope) => {
   let el = null;
   if (scope === "ARTICLE_MAIN") {
@@ -2755,6 +3009,19 @@ const summarizeWithAi = async (backendUrl, text) => {
     ? backendUrl.replace(/\/plan$/, "/summarize")
     : `${backendUrl.replace(/\/+$/, "")}/summarize`;
   return backendFetchJson(summarizeUrl, { text });
+};
+
+const guideWithAi = async (backendUrl, payload) => {
+  const guideUrl = backendUrl.endsWith("/resolve")
+    ? backendUrl.replace(/\/resolve$/, "/guide")
+    : backendUrl.endsWith("/plan")
+    ? backendUrl.replace(/\/plan$/, "/guide")
+    : backendUrl.endsWith("/summarize")
+    ? backendUrl.replace(/\/summarize$/, "/guide")
+    : backendUrl.endsWith("/normalize")
+    ? backendUrl.replace(/\/normalize$/, "/guide")
+    : `${backendUrl.replace(/\/+$/, "")}/guide`;
+  return backendFetchJson(guideUrl, payload);
 };
 
 const renderSummary = (summary) => {
@@ -2887,6 +3154,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 const initPaletteOnLoad = () => {
+  initPageContext();
   showPalette().catch(() => {});
 };
 

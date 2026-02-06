@@ -76,6 +76,28 @@ For destructive actions (submit, pay, purchase, delete), set needsConfirmation=t
 Use pageKeywords to choose better target labels when possible.
 `;
 
+const GUIDE_SYSTEM_PROMPT = `
+You are an accessibility assistant that helps users navigate a web page.
+Given a page URL and pageContext (headings, buttons, inputs, keywords), produce a very concise guide
+focused only on what the user can do (actions and outcomes).
+
+Return JSON only, no markdown, using this schema (max 6 items in arrays):
+{
+  "overview": string,
+  "whatYouCanDo": string[],
+  "highlights": string[] // important phrases to emphasize
+}
+
+Guidelines:
+- Be very concise and straightforward.
+- Only include the most important, useful tools/actions and their consequences.
+- Format each whatYouCanDo item as: "Tool: purpose" (no starting verbs).
+- Limit whatYouCanDo/highlights to at most 6 items.
+- Keep highlights to short phrases (2-6 words).
+- Omit key areas and next steps.
+- Use simple language suitable for assistive tech users.
+`;
+
 const extractJson = (text) => {
   if (!text) return null;
   const first = text.indexOf("{");
@@ -124,6 +146,12 @@ const summarySchema = z.object({
   overview: z.string(),
   bullets: z.array(z.string()).min(1).max(5),
   keyTerms: z.array(z.string()).optional(),
+});
+
+const guideSchema = z.object({
+  overview: z.string(),
+  whatYouCanDo: z.array(z.string()).min(1).max(6),
+  highlights: z.array(z.string()).max(6).optional(),
 });
 
 const normalizeSchema = z.object({
@@ -353,6 +381,63 @@ ${text.slice(0, 6000)}
         overview: "Summary unavailable.",
         bullets: [],
         keyTerms: [],
+      });
+    }
+    return res.json(validated.data);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Model call failed" });
+  }
+});
+
+app.post("/guide", async (req, res) => {
+  if (!ai) {
+    return res.status(500).json({ error: "OPENAI_API_KEY (or OPENAI_KEY) not configured" });
+  }
+  const { url, pageContext } = req.body || {};
+  if (!pageContext || typeof pageContext !== "object") {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  const payload = {
+    url: url || "",
+    pageContext,
+  };
+  const userPrompt = `
+URL: ${payload.url}
+PageContext: ${JSON.stringify(payload.pageContext)}
+Provide a short navigation guide for this page.
+`;
+  try {
+    const response = await ai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: GUIDE_SYSTEM_PROMPT.trim() },
+        { role: "user", content: userPrompt.trim() },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const text = response.choices?.[0]?.message?.content || "";
+    const parsed = extractJson(text);
+    if (!parsed) {
+      return res.status(200).json({
+        overview: "Guide unavailable1.",
+        whatYouCanDo: [],
+      });
+    }
+    if (Array.isArray(parsed.whatYouCanDo)) {
+      parsed.whatYouCanDo = parsed.whatYouCanDo.slice(0, 6);
+    }
+    if (Array.isArray(parsed.highlights)) {
+      parsed.highlights = parsed.highlights.slice(0, 6);
+    }
+    const validated = guideSchema.safeParse(parsed);
+    if (!validated.success) {
+      console.log(JSON.stringify(validated.error.format(), null, 2));
+    }
+    if (!validated.success) {
+      return res.status(200).json({
+        overview: "Guide unavailable2.",
+        whatYouCanDo: [],
       });
     }
     return res.json(validated.data);
