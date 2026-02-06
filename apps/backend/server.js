@@ -67,7 +67,7 @@ Use this schema:
   "needsClarification": false,
   "needsConfirmation": false
 }
-Only use these kinds: CLICK, TYPE, PRESS_KEY, SCROLL, READ_PAGE_SUMMARY, STOP.
+Only use these kinds: CLICK, TYPE, PRESS_KEY, SCROLL, READ_PAGE_SUMMARY, STOP, NAV_BACK, RELOAD.
 SCROLL should be:
 - {"kind":"SCROLL","direction":"DOWN","mode":"ONCE"}
 - {"kind":"SCROLL","direction":"DOWN","mode":"UNTIL","until":"STOP_WORD"}
@@ -91,7 +91,7 @@ const extractJson = (text) => {
 const planSchema = z.object({
   actions: z.array(
     z.object({
-      kind: z.enum(["CLICK", "TYPE", "PRESS_KEY", "SCROLL", "READ_PAGE_SUMMARY", "STOP"]),
+      kind: z.enum(["CLICK", "TYPE", "PRESS_KEY", "SCROLL", "READ_PAGE_SUMMARY", "STOP", "NAV_BACK", "RELOAD"]),
       target: z
         .object({
           by: z.enum(["TEXT", "NUMBER"]),
