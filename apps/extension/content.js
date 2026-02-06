@@ -27,6 +27,7 @@ const A11Y_STATE = {
       focusRingColor: "#1a73e8",
       contrastHelper: "none",
     },
+    visualEffectsEnabled: true,
     backendUrl: "http://localhost:8787/resolve",
   },
   agent: {
@@ -96,6 +97,7 @@ const DEFAULT_SETTINGS = {
   demoMetrics: true,
   backendUrl: "http://localhost:8787/resolve",
   visualPrefs: DEFAULT_VISUAL_SETTINGS,
+  visualEffectsEnabled: true,
 };
 
 const VISUAL_PRESETS = {
@@ -238,7 +240,16 @@ const ensureVisualStyleTag = () => {
   return styleEl;
 };
 
+const clearVisualEffects = () => {
+  const styleEl = document.getElementById(VISUAL_STYLE_ID);
+  if (styleEl) styleEl.remove();
+};
+
 const applyVisualPrefs = (rawPrefs) => {
+  if (!A11Y_STATE.settings.visualEffectsEnabled) {
+    clearVisualEffects();
+    return;
+  }
   const prefs = mergeVisualPrefs(rawPrefs);
   const styleEl = ensureVisualStyleTag();
   if (!prefs.enabled) {
@@ -2322,7 +2333,18 @@ const validatePlan = (plan) => {
 const planLocally = (utterance) => {
   const text = utterance.toLowerCase().trim();
   if (!text) return null;
-  if (text.includes("explain this article") || text.includes("explain this page") || text.includes("summarize this")) {
+  if (
+    text.includes("explain this article") ||
+    text.includes("explain this page") ||
+    text.includes("explain this") ||
+    text.includes("summarize this") ||
+    text === "summarize" ||
+    text === "summary" ||
+    text === "summarize page" ||
+    text === "summarize the page" ||
+    text === "summarize article" ||
+    text === "summarize the article"
+  ) {
     return { actions: [{ kind: "READ_PAGE_SUMMARY", scope: "ARTICLE_MAIN" }] };
   }
   if (text.includes("scroll down until i say stop") || text.includes("scroll until i say stop")) {
@@ -2408,7 +2430,11 @@ const planAndExecute = async (utterance) => {
   const candidates = A11Y_STATE.actionMap.slice(0, 20);
   try {
     const localPlan = planLocally(utterance);
+    if (localPlan) {
+      debugLog(`agent: local plan actions=${localPlan.actions?.length || 0}`);
+    }
     const plan = localPlan || (backendUrl ? await planWithAi(backendUrl, utterance, candidates) : null);
+    debugLog(`agent: plan received actions=${plan?.actions?.length || 0}`);
     if (!plan) {
       toast("Set backend URL for agent planning");
       A11Y_STATE.agent.state = "LISTENING";
@@ -2416,6 +2442,7 @@ const planAndExecute = async (utterance) => {
       return;
     }
     if (!validatePlan(plan)) {
+      debugLog("agent: plan invalid");
       toast("Invalid plan");
       A11Y_STATE.agent.state = "LISTENING";
       updateAgentUi();
@@ -2425,6 +2452,7 @@ const planAndExecute = async (utterance) => {
       toast("Need clarification");
     }
     if (!plan?.actions?.length) {
+      debugLog("agent: no plan returned");
       toast("No plan returned");
       A11Y_STATE.agent.state = "LISTENING";
       updateAgentUi();
@@ -2810,7 +2838,7 @@ const stopVoice = () => {
   if (A11Y_STATE.micBtn) A11Y_STATE.micBtn.classList.remove("active");
 };
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "A11Y_TOGGLE_PALETTE") {
     togglePalette();
   }
@@ -2819,6 +2847,20 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg?.type === "A11Y_TOGGLE_AGENT") {
     toggleAgentMode();
+  }
+  if (msg?.type === "A11Y_GET_STATE") {
+    sendResponse({ paletteOpen: A11Y_STATE.paletteOpen, visualEffectsEnabled: A11Y_STATE.settings.visualEffectsEnabled });
+    return true;
+  }
+  if (msg?.type === "A11Y_SET_VISUALS") {
+    A11Y_STATE.settings.visualEffectsEnabled = !!msg.enabled;
+    if (A11Y_STATE.settings.visualEffectsEnabled) {
+      applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+    } else {
+      clearVisualEffects();
+    }
+    sendResponse({ ok: true });
+    return true;
   }
 });
 
@@ -2843,5 +2885,15 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   applyVisualPrefs(prefs);
   updateVisualPanelFields(prefs);
 });
+
+const initPaletteOnLoad = () => {
+  showPalette().catch(() => {});
+};
+
+if (document.readyState === "complete" || document.readyState === "interactive") {
+  setTimeout(initPaletteOnLoad, 0);
+} else {
+  window.addEventListener("DOMContentLoaded", initPaletteOnLoad, { once: true });
+}
 
 initVisualA11yFeatures();
