@@ -15,6 +15,7 @@ const A11Y_STATE = {
   },
   settings: {
     voiceEnabled: true,
+    textToSpeechEnabled: true,
     agentModeEnabled: true,
     confirmDanger: true,
     demoMetrics: true,
@@ -58,6 +59,9 @@ const A11Y_STATE = {
   metricsEl: null,
   toastEl: null,
   summaryEl: null,
+  summaryContentEl: null,
+  summaryContinueBtn: null,
+  ttsPaused: false,
   debugEl: null,
   debugEnabled: true,
   pageContext: null,
@@ -71,6 +75,7 @@ const A11Y_STATE = {
   agentStopBtn: null,
   paletteEl: null,
   dragHandleEl: null,
+  lastSummaryText: "",
   drag: {
     active: false,
     offsetX: 0,
@@ -79,7 +84,6 @@ const A11Y_STATE = {
 };
 
 const DEFAULT_VISUAL_SETTINGS = {
-  enabled: false,
   bodyBackground: "#ffffff",
   bodyTextColor: "#111111",
   linksUnderline: true,
@@ -92,6 +96,7 @@ const DEFAULT_VISUAL_SETTINGS = {
 
 const DEFAULT_SETTINGS = {
   voiceEnabled: true,
+  textToSpeechEnabled: true,
   agentModeEnabled: true,
   confirmDanger: true,
   demoMetrics: true,
@@ -128,76 +133,6 @@ const VISUAL_PRESETS = {
     focusRingColor: "#0b6e4f",
     contrastHelper: "strong",
   },
-  sepiaReader: {
-    bodyBackground: "#f4ecd8",
-    bodyTextColor: "#2f2418",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#8b5a2b",
-    contrastHelper: "soft",
-    zoomPercent: 110,
-  },
-  creamPaper: {
-    bodyBackground: "#fff7de",
-    bodyTextColor: "#222222",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#1a5fb4",
-    contrastHelper: "soft",
-    zoomPercent: 105,
-  },
-  dimNightMode: {
-    bodyBackground: "#121212",
-    bodyTextColor: "#e6e6e6",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#7dd3fc",
-    contrastHelper: "soft",
-    zoomPercent: 105,
-  },
-  boldBlackOnYellow: {
-    bodyBackground: "#fff200",
-    bodyTextColor: "#000000",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#1d4ed8",
-    contrastHelper: "strong",
-    zoomPercent: 115,
-  },
-  boldYellowOnBlack: {
-    bodyBackground: "#000000",
-    bodyTextColor: "#ffeb3b",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#ffd54f",
-    contrastHelper: "strong",
-    zoomPercent: 115,
-  },
-  blueYellowContrast: {
-    bodyBackground: "#0a1f44",
-    bodyTextColor: "#ffe066",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#82cfff",
-    contrastHelper: "strong",
-    zoomPercent: 110,
-  },
-  softGrayReading: {
-    bodyBackground: "#eceff3",
-    bodyTextColor: "#1f2937",
-    linksUnderline: true,
-    keyboardFocus: true,
-    focusRingEnabled: true,
-    focusRingColor: "#2563eb",
-    contrastHelper: "soft",
-    zoomPercent: 105,
-  },
 };
 
 const VISUAL_STYLE_ID = "a11y-autopilot-visual-style";
@@ -219,7 +154,6 @@ const clampZoomPercent = (value) => {
 const mergeVisualPrefs = (prefs = {}) => ({
   ...DEFAULT_VISUAL_SETTINGS,
   ...prefs,
-  enabled: prefs.enabled === true,
   bodyBackground: isHexColor(prefs.bodyBackground) ? prefs.bodyBackground.trim() : DEFAULT_VISUAL_SETTINGS.bodyBackground,
   bodyTextColor: isHexColor(prefs.bodyTextColor) ? prefs.bodyTextColor.trim() : DEFAULT_VISUAL_SETTINGS.bodyTextColor,
   focusRingColor: isHexColor(prefs.focusRingColor) ? prefs.focusRingColor.trim() : DEFAULT_VISUAL_SETTINGS.focusRingColor,
@@ -252,10 +186,6 @@ const applyVisualPrefs = (rawPrefs) => {
   }
   const prefs = mergeVisualPrefs(rawPrefs);
   const styleEl = ensureVisualStyleTag();
-  if (!prefs.enabled) {
-    styleEl.textContent = "";
-    return;
-  }
   const underline = prefs.linksUnderline ? "underline" : "none";
   const focusOutline = prefs.focusRingEnabled ? `3px solid ${prefs.focusRingColor}` : "none";
   const focusShadow = prefs.focusRingEnabled ? `0 0 0 2px ${prefs.focusRingColor}55` : "none";
@@ -287,8 +217,10 @@ const applyVisualPrefs = (rawPrefs) => {
     html, body {
       background: ${prefs.bodyBackground} !important;
     }
-    body {
+    html {
       zoom: ${prefs.zoomPercent}% !important;
+    }
+    body {
       color: ${prefs.bodyTextColor} !important;
     }
     a { text-decoration: ${underline} !important; }
@@ -303,7 +235,6 @@ const updateVisualPanelFields = (prefs) => {
   const root = getVisualRoot();
   if (!root?.shadowRoot) return;
   const panel = root.shadowRoot;
-  panel.getElementById("v-enabled").checked = prefs.enabled !== false;
   panel.getElementById("v-body-bg").value = prefs.bodyBackground;
   panel.getElementById("v-text-color").value = prefs.bodyTextColor;
   panel.getElementById("v-focus-color").value = prefs.focusRingColor;
@@ -320,7 +251,6 @@ const readVisualPanelFields = () => {
   const panel = root?.shadowRoot;
   if (!panel) return mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
   return mergeVisualPrefs({
-    enabled: panel.getElementById("v-enabled").checked,
     bodyBackground: panel.getElementById("v-body-bg").value,
     bodyTextColor: panel.getElementById("v-text-color").value,
     focusRingColor: panel.getElementById("v-focus-color").value,
@@ -336,8 +266,7 @@ const saveVisualPrefs = async (prefs) => {
   const nextPrefs = mergeVisualPrefs(prefs);
   A11Y_STATE.settings.visualPrefs = nextPrefs;
   applyVisualPrefs(nextPrefs);
-  const { enabled: _enabled, ...persistedPrefs } = nextPrefs;
-  await chrome.storage.local.set({ visualPrefs: persistedPrefs });
+  await chrome.storage.local.set({ visualPrefs: nextPrefs });
 };
 
 const createVisualPanel = async () => {
@@ -383,15 +312,6 @@ const createVisualPanel = async () => {
       }
       .panel.open { display: block; }
       .title { font-size: 15px; margin: 0 0 8px; }
-      .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-      .title { margin: 0; }
-      .toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        white-space: nowrap;
-      }
       .desc { font-size: 12px; margin: 0 0 10px; color: #374151; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       label { display: block; margin: 8px 0 4px; }
@@ -430,10 +350,7 @@ const createVisualPanel = async () => {
     </style>
     <button class="fab" id="v-open-btn" aria-label="Open visual settings">Visual Settings</button>
     <section class="panel" id="v-panel" aria-label="Visual accessibility settings" role="dialog">
-      <div class="header">
-        <h2 class="title">Visual Accessibility</h2>
-        <label class="toggle"><input id="v-enabled" type="checkbox" /> On</label>
-      </div>
+      <h2 class="title">Visual Accessibility</h2>
       <p class="desc">Choose contrast and focus settings for better readability across websites.</p>
 
       <div class="grid">
@@ -475,16 +392,10 @@ const createVisualPanel = async () => {
         <button id="v-preset-dark" type="button">High Contrast Dark</button>
         <button id="v-preset-light" type="button">High Contrast Light</button>
         <button id="v-preset-dyslexia" type="button">Readability Boost</button>
-        <button id="v-preset-sepia" type="button">Sepia Reader</button>
-        <button id="v-preset-cream" type="button">Cream Paper</button>
-        <button id="v-preset-dim-night" type="button">Dim Night Mode</button>
-        <button id="v-preset-black-yellow" type="button">Bold Black on Yellow</button>
-        <button id="v-preset-yellow-black" type="button">Bold Yellow on Black</button>
-        <button id="v-preset-blue-yellow" type="button">Blue/Yellow Contrast</button>
-        <button id="v-preset-soft-gray" type="button">Soft Gray Reading</button>
       </div>
 
       <div class="actions">
+        <button id="v-save" class="primary" type="button">Save as Default</button>
         <button id="v-reset" type="button">Reset</button>
         <button id="v-close" type="button">Close</button>
       </div>
@@ -496,7 +407,6 @@ const createVisualPanel = async () => {
   const panel = shadow.getElementById("v-panel");
   const status = shadow.getElementById("v-status");
   const openBtn = shadow.getElementById("v-open-btn");
-  let autoSaveTimer = null;
 
   const showStatus = (text) => {
     status.textContent = text;
@@ -509,10 +419,7 @@ const createVisualPanel = async () => {
     panel.classList.toggle("open");
     if (panel.classList.contains("open")) {
       const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-      const prefs = mergeVisualPrefs({
-        ...stored.visualPrefs,
-        enabled: A11Y_STATE.settings.visualPrefs?.enabled === true,
-      });
+      const prefs = mergeVisualPrefs(stored.visualPrefs);
       updateVisualPanelFields(prefs);
       applyVisualPrefs(prefs);
       A11Y_STATE.settings.visualPrefs = prefs;
@@ -523,26 +430,21 @@ const createVisualPanel = async () => {
     panel.classList.remove("open");
   });
 
-  const scheduleAutoSave = () => {
-    if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(async () => {
-      const prefs = readVisualPanelFields();
-      await saveVisualPrefs(prefs);
-      showStatus("Auto-saved");
-    }, 120);
-  };
+  shadow.getElementById("v-save").addEventListener("click", async () => {
+    const prefs = readVisualPanelFields();
+    await saveVisualPrefs(prefs);
+    showStatus("Saved");
+  });
 
   shadow.getElementById("v-reset").addEventListener("click", async () => {
-    const current = readVisualPanelFields();
-    const prefs = mergeVisualPrefs({ ...DEFAULT_VISUAL_SETTINGS, enabled: current.enabled });
+    const prefs = mergeVisualPrefs(DEFAULT_VISUAL_SETTINGS);
     updateVisualPanelFields(prefs);
     await saveVisualPrefs(prefs);
     showStatus("Reset to default");
   });
 
   const applyPreset = async (preset) => {
-    const current = readVisualPanelFields();
-    const prefs = mergeVisualPrefs({ ...preset, enabled: current.enabled });
+    const prefs = mergeVisualPrefs(preset);
     updateVisualPanelFields(prefs);
     await saveVisualPrefs(prefs);
     showStatus("Preset applied");
@@ -551,13 +453,6 @@ const createVisualPanel = async () => {
   shadow.getElementById("v-preset-dark").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastDark));
   shadow.getElementById("v-preset-light").addEventListener("click", () => applyPreset(VISUAL_PRESETS.highContrastLight));
   shadow.getElementById("v-preset-dyslexia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dyslexiaFriendly));
-  shadow.getElementById("v-preset-sepia").addEventListener("click", () => applyPreset(VISUAL_PRESETS.sepiaReader));
-  shadow.getElementById("v-preset-cream").addEventListener("click", () => applyPreset(VISUAL_PRESETS.creamPaper));
-  shadow.getElementById("v-preset-dim-night").addEventListener("click", () => applyPreset(VISUAL_PRESETS.dimNightMode));
-  shadow.getElementById("v-preset-black-yellow").addEventListener("click", () => applyPreset(VISUAL_PRESETS.boldBlackOnYellow));
-  shadow.getElementById("v-preset-yellow-black").addEventListener("click", () => applyPreset(VISUAL_PRESETS.boldYellowOnBlack));
-  shadow.getElementById("v-preset-blue-yellow").addEventListener("click", () => applyPreset(VISUAL_PRESETS.blueYellowContrast));
-  shadow.getElementById("v-preset-soft-gray").addEventListener("click", () => applyPreset(VISUAL_PRESETS.softGrayReading));
 
   shadow.getElementById("v-zoom-out").addEventListener("click", () => {
     const zoomEl = shadow.getElementById("v-zoom-range");
@@ -565,7 +460,6 @@ const createVisualPanel = async () => {
     zoomEl.value = String(next);
     shadow.getElementById("v-zoom-label").textContent = `${next}%`;
     applyVisualPrefs(readVisualPanelFields());
-    scheduleAutoSave();
   });
 
   shadow.getElementById("v-zoom-in").addEventListener("click", () => {
@@ -574,18 +468,15 @@ const createVisualPanel = async () => {
     zoomEl.value = String(next);
     shadow.getElementById("v-zoom-label").textContent = `${next}%`;
     applyVisualPrefs(readVisualPanelFields());
-    scheduleAutoSave();
   });
 
   shadow.getElementById("v-zoom-step").addEventListener("click", () => {
     shadow.getElementById("v-zoom-range").value = "100";
     shadow.getElementById("v-zoom-label").textContent = "100%";
     applyVisualPrefs(readVisualPanelFields());
-    scheduleAutoSave();
   });
 
   const livePreviewIds = [
-    "v-enabled",
     "v-body-bg",
     "v-text-color",
     "v-focus-color",
@@ -603,22 +494,11 @@ const createVisualPanel = async () => {
         shadow.getElementById("v-zoom-label").textContent = `${zoomNow}%`;
       }
       applyVisualPrefs(readVisualPanelFields());
-      scheduleAutoSave();
     });
   });
 
-  document.addEventListener(
-    "pointerdown",
-    (event) => {
-      if (!panel.classList.contains("open")) return;
-      if (event.composedPath().includes(host)) return;
-      panel.classList.remove("open");
-    },
-    true
-  );
-
   const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-  const prefs = mergeVisualPrefs({ ...stored.visualPrefs, enabled: false });
+  const prefs = mergeVisualPrefs(stored.visualPrefs);
   updateVisualPanelFields(prefs);
   applyVisualPrefs(prefs);
   A11Y_STATE.settings.visualPrefs = prefs;
@@ -626,7 +506,7 @@ const createVisualPanel = async () => {
 
 const initVisualA11yFeatures = async () => {
   const stored = await chrome.storage.local.get({ visualPrefs: DEFAULT_VISUAL_SETTINGS });
-  const prefs = mergeVisualPrefs({ ...stored.visualPrefs, enabled: false });
+  const prefs = mergeVisualPrefs(stored.visualPrefs);
   A11Y_STATE.settings.visualPrefs = prefs;
   applyVisualPrefs(prefs);
   await createVisualPanel();
@@ -634,6 +514,19 @@ const initVisualA11yFeatures = async () => {
 
 const DANGEROUS_KEYWORDS = ["delete", "remove", "pay", "submit", "purchase"];
 const STOP_WORDS = ["stop", "cancel", "pause"];
+const STOP_PHRASES = ["stop reading", "pause reading", "stop speaking", "pause speaking"];
+const RESUME_PHRASES = [
+  "continue",
+  "continue reading",
+  "resume",
+  "resume reading",
+  "keep going",
+  "keep reading",
+  "go on",
+  "carry on",
+  "keep talking",
+  "keep speaking",
+];
 const OPTION_WORDS = {
   "first": 1,
   "first one": 1,
@@ -693,6 +586,9 @@ const COMMAND_HINTS = [
   "summarize the article",
   "explain the page",
   "explain the article",
+  "stop reading",
+  "continue reading",
+  "resume reading",
   "label mode on|off",
   "open <number>",
   "submit",
@@ -737,8 +633,15 @@ const COMMON_COMMANDS = [
   "open 8",
   "open 9",
   "stop",
+  "stop reading",
+  "pause reading",
   "cancel",
   "pause",
+  "continue",
+  "continue reading",
+  "resume",
+  "resume reading",
+  "keep reading",
   "submit",
 ];
 
@@ -770,9 +673,14 @@ const KEYWORD_TOKENS = [
   "into",
   "submit",
   "summary",
+  "read",
+  "reading",
   "stop",
   "cancel",
   "pause",
+  "continue",
+  "resume",
+  "keep",
   "number",
   "one",
   "two",
@@ -1070,6 +978,21 @@ const ensureUi = () => {
       font-size: 12px;
       color: #e2e8f0;
     }
+    .summary-controls {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .summary-controls button {
+      border: 1px solid #475569;
+      background: #111827;
+      color: #e2e8f0;
+      padding: 4px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
     .summary ul {
       margin: 6px 0 0 16px;
       padding: 0;
@@ -1114,7 +1037,12 @@ const ensureUi = () => {
           <div class="agent-line agent-transcript">Transcript: —</div>
           <div class="agent-line agent-step">Step: —</div>
         </div>
-        <div class="summary"></div>
+        <div class="summary">
+          <div class="summary-content"></div>
+          <div class="summary-controls">
+            <button class="summary-continue" type="button">Continue</button>
+          </div>
+        </div>
         <div class="debug"></div>
         <div class="metrics"></div>
       </div>
@@ -1134,6 +1062,8 @@ const ensureUi = () => {
   A11Y_STATE.metricsEl = shadow.querySelector(".metrics");
   A11Y_STATE.toastEl = shadow.querySelector(".toast");
   A11Y_STATE.summaryEl = shadow.querySelector(".summary");
+  A11Y_STATE.summaryContentEl = shadow.querySelector(".summary-content");
+  A11Y_STATE.summaryContinueBtn = shadow.querySelector(".summary-continue");
   A11Y_STATE.debugEl = shadow.querySelector(".debug");
   A11Y_STATE.labelsEl = shadow.querySelector(".labels");
   A11Y_STATE.micBtn = shadow.querySelector(".mic-btn");
@@ -1148,19 +1078,33 @@ const ensureUi = () => {
   A11Y_STATE.inputEl.addEventListener("keydown", onInputKeyDown);
   A11Y_STATE.micBtn.addEventListener("click", toggleVoice);
   A11Y_STATE.agentToggleBtn.addEventListener("click", toggleAgentMode);
-  A11Y_STATE.agentStopBtn.addEventListener("click", interruptAgent);
+  A11Y_STATE.agentStopBtn.addEventListener("click", stopAgent);
   A11Y_STATE.paletteEl.addEventListener("mousedown", startDrag);
   A11Y_STATE.closeBtn.addEventListener("click", hidePalette);
+  if (A11Y_STATE.summaryContinueBtn) {
+    A11Y_STATE.summaryContinueBtn.addEventListener("click", () => {
+      if (!A11Y_STATE.settings.textToSpeechEnabled) {
+        toast("Enable text to speech in settings");
+        return;
+      }
+      if (resumeSpeech()) {
+        resumeAgentIfPaused();
+        return;
+      }
+      toast("Nothing to resume");
+    });
+  }
 };
 
 const loadSettings = async () => {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS);
   A11Y_STATE.settings = { ...DEFAULT_SETTINGS, ...stored };
-  A11Y_STATE.settings.visualPrefs = mergeVisualPrefs({
-    ...(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS),
-    enabled: false,
-  });
-  applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+  A11Y_STATE.settings.visualPrefs = mergeVisualPrefs(stored.visualPrefs || DEFAULT_VISUAL_SETTINGS);
+  if (A11Y_STATE.settings.visualEffectsEnabled) {
+    applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+  } else {
+    clearVisualEffects();
+  }
 };
 
 const showPalette = async () => {
@@ -1539,7 +1483,25 @@ const executeInput = async (raw) => {
     return;
   }
   if (parsed.intent === "STOP") {
+    const paused = pauseSpeech();
+    if (paused) {
+      toast("Reading paused.");
+      if (!A11Y_STATE.agent.enabled) return;
+    }
     interruptAgent();
+    return;
+  }
+  if (parsed.intent === "TTS_RESUME") {
+    if (!A11Y_STATE.settings.textToSpeechEnabled) {
+      toast("Enable text to speech in settings");
+      return;
+    }
+    if (resumeSpeech()) {
+      resumeAgentIfPaused();
+      toast("Reading resumed.");
+      return;
+    }
+    toast("Nothing to resume");
     return;
   }
   if (parsed.intent === "OPEN_NUMBER") {
@@ -1572,6 +1534,8 @@ const parseCommand = (input) => {
   if (text === "agent mode off") return { intent: "TOGGLE_AGENT_MODE", enabled: false };
   const common = parseCommonCommand(text);
   if (common) return common;
+  if (STOP_PHRASES.includes(text)) return { intent: "STOP" };
+  if (RESUME_PHRASES.includes(text)) return { intent: "TTS_RESUME" };
   if (STOP_WORDS.includes(text)) return { intent: "STOP" };
   const openNumber = text.match(/^open\s+(\d+)$/);
   if (openNumber) return { intent: "OPEN_NUMBER", n: Number(openNumber[1]) };
@@ -1609,6 +1573,7 @@ const parseCommonCommand = (text) => {
   ) {
     return { intent: "SUMMARIZE" };
   }
+  if (RESUME_PHRASES.includes(text)) return { intent: "TTS_RESUME" };
   if (text === "go back" || text === "back") return { intent: "NAV_BACK" };
   if (text === "reload" || text === "refresh" || text === "refresh page") return { intent: "RELOAD" };
   if (text === "focus next") return { intent: "FOCUS_NEXT" };
@@ -1763,6 +1728,9 @@ const deriveCommandFromTokens = (tokens) => {
   const set = new Set(tokens);
 
   if (hasAny(set, ["stop", "cancel", "pause"])) return "stop";
+  if (hasAny(set, ["continue", "resume"]) && hasAny(set, ["read", "reading", "summary"])) return "continue reading";
+  if (hasAny(set, ["continue", "resume", "keep"]) && set.has("reading")) return "continue reading";
+  if (hasAny(set, ["continue", "resume", "keep"])) return "continue reading";
 
   if (set.has("scroll")) {
     if (set.has("up")) return "scroll up";
@@ -1825,6 +1793,10 @@ const matchCommonCommand = (utterance) => {
 const mapCommonSynonyms = (text) => {
   const norm = normalize(text);
   if (!norm) return null;
+  if (["stop reading", "pause reading", "stop speaking", "pause speaking"].includes(norm)) return "stop";
+  if (["continue", "continue reading", "resume", "resume reading", "keep reading", "keep going"].includes(norm)) {
+    return "continue reading";
+  }
   if (["reload", "refresh", "refresh page"].includes(norm)) return "reload";
   if (["back", "go back", "go backward"].includes(norm)) return "go back";
   if (
@@ -2225,12 +2197,26 @@ const startAgentListening = () => {
     const state = A11Y_STATE.agent.state;
     const trimmed = transcript.toLowerCase().trim();
     if ((state === "EXECUTING" || state === "PAUSED") && containsStopWord(transcript)) {
+      if (pauseSpeech()) toast("Reading paused.");
       interruptAgent();
       return;
     }
     if (state === "LISTENING" && STOP_WORDS.includes(trimmed)) {
+      if (pauseSpeech()) toast("Reading paused.");
       interruptAgent();
       return;
+    }
+    if (RESUME_PHRASES.includes(trimmed)) {
+      if (!A11Y_STATE.settings.textToSpeechEnabled) {
+        toast("Enable text to speech in settings");
+        return;
+      }
+      if (resumeSpeech()) {
+        resumeAgentIfPaused();
+        toast("Reading resumed.");
+        return;
+      }
+      toast("Nothing to resume");
     }
     if (A11Y_STATE.agent.state !== "LISTENING") return;
     schedulePlanning(transcript);
@@ -2277,6 +2263,15 @@ const interruptAgent = () => {
   stopScrollLoop();
   toast("Stopped.");
   updateAgentUi();
+};
+
+const resumeAgentIfPaused = () => {
+  if (!A11Y_STATE.agent.enabled) return;
+  if (A11Y_STATE.agent.state === "PAUSED") {
+    A11Y_STATE.agent.interrupt = false;
+    A11Y_STATE.agent.state = "LISTENING";
+    updateAgentUi();
+  }
 };
 
 const schedulePlanning = (utterance) => {
@@ -2761,18 +2756,56 @@ const renderSummary = (summary) => {
   if (!summary) return;
   const bullets = (summary.bullets || []).map((b) => `<li>${b}</li>`).join("");
   const terms = (summary.keyTerms || []).map((t) => `<li>${t}</li>`).join("");
-  if (!A11Y_STATE.summaryEl) return;
+  if (!A11Y_STATE.summaryEl || !A11Y_STATE.summaryContentEl) return;
   A11Y_STATE.summaryEl.style.display = "block";
-  A11Y_STATE.summaryEl.innerHTML = `
-    <div><strong>Overview</strong><div>${summary.overview || "—"}</div></div>
+  A11Y_STATE.summaryContentEl.innerHTML = `
+    <div><strong>Overview</strong><div>${summary.overview || "?"}</div></div>
     <div style="margin-top:8px;"><strong>Key Points</strong><ul>${bullets}</ul></div>
     ${terms ? `<div style="margin-top:8px;"><strong>Key Terms</strong><ul>${terms}</ul></div>` : ""}
   `;
+  A11Y_STATE.lastSummaryText = summary.overview || "";
+};
+
+const canUseSpeechSynthesis = () => "speechSynthesis" in window;
+
+const pauseSpeech = () => {
+  if (!canUseSpeechSynthesis()) return false;
+  const synth = window.speechSynthesis;
+  if (synth.paused) {
+    A11Y_STATE.ttsPaused = true;
+    return true;
+  }
+  if (synth.speaking || synth.pending) {
+    synth.pause();
+    A11Y_STATE.ttsPaused = true;
+    return true;
+  }
+  return false;
+};
+
+const resumeSpeech = () => {
+  if (!canUseSpeechSynthesis()) return false;
+  const synth = window.speechSynthesis;
+  if (synth.paused || A11Y_STATE.ttsPaused) {
+    synth.resume();
+    A11Y_STATE.ttsPaused = false;
+    return true;
+  }
+  return false;
 };
 
 const speak = (text) => {
-  if (!("speechSynthesis" in window)) return;
+  if (!A11Y_STATE.settings.textToSpeechEnabled) return;
+  if (!canUseSpeechSynthesis()) return;
+  if (!text) return;
   const utterance = new SpeechSynthesisUtterance(text);
+  A11Y_STATE.ttsPaused = false;
+  utterance.onend = () => {
+    A11Y_STATE.ttsPaused = false;
+  };
+  utterance.onerror = () => {
+    A11Y_STATE.ttsPaused = false;
+  };
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
 };
@@ -2799,7 +2832,7 @@ const startVoice = () => {
   const recognition = new Speech();
   recognition.lang = "en-US";
   recognition.interimResults = true;
-  recognition.continuous = false;
+  recognition.continuous = true;
   recognition.onresult = (event) => {
     const last = event.results[event.results.length - 1];
     const transcript = last[0].transcript.trim();
@@ -2816,15 +2849,21 @@ const startVoice = () => {
     }
   };
   recognition.onend = () => {
+    if (A11Y_STATE.recognition !== recognition) return;
     A11Y_STATE.recognition = null;
-    A11Y_STATE.micBtn.classList.remove("active");
+    if (A11Y_STATE.micBtn) A11Y_STATE.micBtn.classList.remove("active");
+    if (A11Y_STATE.paletteOpen && A11Y_STATE.settings.voiceEnabled) {
+      startVoice();
+    }
   };
   recognition.onerror = () => {
+    if (A11Y_STATE.recognition !== recognition) return;
     A11Y_STATE.recognition = null;
-    A11Y_STATE.micBtn.classList.remove("active");
+    if (A11Y_STATE.micBtn) A11Y_STATE.micBtn.classList.remove("active");
+    toast("Voice error. Check mic permissions.");
   };
   A11Y_STATE.recognition = recognition;
-  A11Y_STATE.micBtn.classList.add("active");
+  if (A11Y_STATE.micBtn) A11Y_STATE.micBtn.classList.add("active");
   recognition.start();
 };
 
@@ -2876,14 +2915,25 @@ window.addEventListener("resize", scheduleLabelRender);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
-  if (!changes.visualPrefs) return;
-  const prefs = mergeVisualPrefs({
-    ...(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS),
-    enabled: A11Y_STATE.settings.visualPrefs?.enabled === true,
-  });
-  A11Y_STATE.settings.visualPrefs = prefs;
-  applyVisualPrefs(prefs);
-  updateVisualPanelFields(prefs);
+  if (changes.visualPrefs) {
+    const prefs = mergeVisualPrefs(changes.visualPrefs.newValue || DEFAULT_VISUAL_SETTINGS);
+    A11Y_STATE.settings.visualPrefs = prefs;
+    if (A11Y_STATE.settings.visualEffectsEnabled) {
+      applyVisualPrefs(prefs);
+    }
+    updateVisualPanelFields(prefs);
+  }
+  if (changes.visualEffectsEnabled) {
+    A11Y_STATE.settings.visualEffectsEnabled = changes.visualEffectsEnabled.newValue;
+    if (A11Y_STATE.settings.visualEffectsEnabled) {
+      applyVisualPrefs(A11Y_STATE.settings.visualPrefs);
+    } else {
+      clearVisualEffects();
+    }
+  }
+  if (changes.textToSpeechEnabled) {
+    A11Y_STATE.settings.textToSpeechEnabled = changes.textToSpeechEnabled.newValue;
+  }
 });
 
 const initPaletteOnLoad = () => {
@@ -2895,5 +2945,6 @@ if (document.readyState === "complete" || document.readyState === "interactive")
 } else {
   window.addEventListener("DOMContentLoaded", initPaletteOnLoad, { once: true });
 }
+
 
 initVisualA11yFeatures();
